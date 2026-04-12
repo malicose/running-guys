@@ -3,6 +3,7 @@ import { BALANCE } from '../config/balance'
 import { RECIPE_BY_ID } from '../config/recipes'
 import { ITEMS } from '../config/items'
 import { EventBus } from '../systems/EventBus'
+import { drawItemIcon } from '../ui/itemIcons'
 import type { RecipeDef, ItemId } from '../types'
 import type { StackSystem } from '../systems/StackSystem'
 import type { Player } from './Player'
@@ -43,6 +44,9 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   private inTransferCd  = 0
   private outTransferCd = 0
 
+  // Ambient bubble spawn cadence (only ticks while processing)
+  private bubbleTimer   = 0
+
   // Visuals — station body
   private shadowObj!:      Phaser.GameObjects.Ellipse
   private machineGfx!:     Phaser.GameObjects.Graphics
@@ -54,9 +58,13 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   private trayShadow!:     Phaser.GameObjects.Ellipse
   private trayGfx!:        Phaser.GameObjects.Graphics
 
-  // Item icon pools
-  private queueIcons:  Phaser.GameObjects.Rectangle[] = []
-  private outputIcons: Phaser.GameObjects.Rectangle[] = []
+  // Item icon pools (Graphics so we can render rich per-item shapes)
+  private queueIcons:  Phaser.GameObjects.Graphics[] = []
+  private outputIcons: Phaser.GameObjects.Graphics[] = []
+  // Cache the last item id drawn into each pool slot so we don't redraw
+  // the (potentially complex) icon every frame.
+  private queueIconIds:  (ItemId | null)[] = []
+  private outputIconIds: (ItemId | null)[] = []
 
   // ── Construction ──────────────────────────────────────────────────────────
 
@@ -130,16 +138,16 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y)
     if (dist > BALANCE.PLAYER_INTERACT_RADIUS + 20) return
 
-    // Try to take one matching item from the top of player's stack
-    const topItem = stack.peekTop()
-    if (!topItem) return
-    if (!this.recipe.input.includes(topItem)) return
+    // Pull the top-most matching item out of the stack — items don't have to
+    // be in the right order, the player just walks up and the stack drains
+    // any item this recipe accepts.
+    const taken = stack.removeFirstMatching((id) => this.recipe.input.includes(id))
+    if (!taken) return
 
-    stack.removeTopItem()
-    this.inputQueue.push(topItem)
+    this.inputQueue.push(taken)
     this.inTransferCd = BALANCE.TRANSFER_INTERVAL
 
-    EventBus.emit('item:deposited', { item: topItem, stationId: this.recipe.id })
+    EventBus.emit('item:deposited', { item: taken, stationId: this.recipe.id })
     this._popInputFeedback()
   }
 
@@ -186,6 +194,33 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     const item = this.outputBuffer.pop()!
     stack.addItem(item)
     this.outTransferCd = BALANCE.TRANSFER_INTERVAL
+  }
+
+  /** Spawn one ambient bubble drifting up from the machine top — visual
+   *  cue that something is brewing. Tinted by the recipe's output item. */
+  private _spawnBubble(): void {
+    const outDef = ITEMS[this.recipe.output]
+    const tint   = outDef?.color ?? 0xffffff
+
+    const offX = (Math.random() - 0.5) * 16
+    const sx   = this.x + offX
+    const sy   = this.y - 14
+
+    const bubble = this.scene.add.circle(sx, sy, 2 + Math.random() * 1.5, tint, 0.85)
+    bubble.setStrokeStyle(1, 0xffffff, 0.6)
+    bubble.setDepth(this.y + 20)
+
+    this.scene.tweens.add({
+      targets:  bubble,
+      x:        sx + (Math.random() - 0.5) * 18,
+      y:        sy - 28 - Math.random() * 12,
+      alpha:    0,
+      scaleX:   1.6,
+      scaleY:   1.6,
+      duration: 1100,
+      ease:     'Sine.Out',
+      onComplete: () => bubble.destroy(),
+    })
   }
 
   private _hasRequiredInputs(): boolean {
@@ -300,7 +335,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
   // ── Private — visual updates (each frame) ─────────────────────────────────
 
-  private _updateVisuals(_dt: number): void {
+  private _updateVisuals(dt: number): void {
     // Progress bar
     if (this.processing) {
       const progress = 1 - this.processTimer / this.recipe.time
@@ -312,15 +347,24 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
       // Spin gear proportional to processing speed
       this.gearObj.angle += 4
+
+      // Ambient bubbles drifting up out of the machine top
+      this.bubbleTimer += dt
+      if (this.bubbleTimer >= 0.18) {
+        this.bubbleTimer = 0
+        this._spawnBubble()
+      }
     } else {
       this.pBarBg.setVisible(false)
       this.pBarFill.setVisible(false)
+      this.bubbleTimer = 0
     }
 
     // Queue icons (left of station)
     this._refreshIcons(
       this.inputQueue,
       this.queueIcons,
+      this.queueIconIds,
       this.x - 34,
       this.y,
       -ICON_SIZE - 2,
@@ -330,6 +374,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this._refreshIcons(
       this.outputBuffer,
       this.outputIcons,
+      this.outputIconIds,
       this.outputTrayX,
       this.outputTrayY - 8,
       0,
@@ -341,10 +386,11 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this.trayShadow.setDepth(this.outputTrayY - 1)
   }
 
-  /** Sync or create icon sprites for an array of items */
+  /** Sync or create icon graphics for an array of items */
   private _refreshIcons(
     items:   ItemId[],
-    pool:    Phaser.GameObjects.Rectangle[],
+    pool:    Phaser.GameObjects.Graphics[],
+    cache:   (ItemId | null)[],
     startX:  number,
     startY:  number,
     stepX:   number,
@@ -354,21 +400,26 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
     // Grow pool
     while (pool.length < visible) {
-      const rect = this.scene.add
-        .rectangle(0, 0, ICON_SIZE, ICON_SIZE, 0xffffff)
-        .setStrokeStyle(1, 0x000000, 0.3)
-        .setDepth(9990)
-      pool.push(rect)
+      const g = this.scene.add.graphics()
+      g.setDepth(9990)
+      pool.push(g)
+      cache.push(null)
     }
 
-    // Update positions and colours
+    // Update positions and per-slot icon (only redraw on item-id change)
     for (let i = 0; i < pool.length; i++) {
       const show = i < visible
       pool[i].setVisible(show)
-      if (!show) continue
+      if (!show) {
+        cache[i] = null
+        continue
+      }
 
-      const def = ITEMS[items[i]]
-      pool[i].setFillStyle(def?.color ?? 0x888888)
+      const id = items[i]
+      if (cache[i] !== id) {
+        drawItemIcon(pool[i], id, ICON_SIZE)
+        cache[i] = id
+      }
 
       if (stacked) {
         pool[i].setPosition(startX, startY - i * (ICON_SIZE - 2))

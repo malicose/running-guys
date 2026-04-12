@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
-import { ITEMS } from '../config/items'
 import { BALANCE } from '../config/balance'
+import { drawItemIcon } from '../ui/itemIcons'
 import type { ItemId } from '../types'
 import type { WorkerAI, WorkerTask } from '../systems/WorkerAI'
 
@@ -43,8 +43,12 @@ export class Worker extends Phaser.GameObjects.Container {
 
   // Visuals
   private shadowObj!:  Phaser.GameObjects.Ellipse
+  private shadowSoft!: Phaser.GameObjects.Ellipse
   private dirDot!:     Phaser.GameObjects.Arc
   private stateLabel!: Phaser.GameObjects.Text
+  private legL!:       Phaser.GameObjects.Ellipse
+  private legR!:       Phaser.GameObjects.Ellipse
+  private walkPhase   = 0
 
   constructor(scene: Phaser.Scene, x: number, y: number, ai: WorkerAI) {
     super(scene, x, y)
@@ -83,6 +87,7 @@ export class Worker extends Phaser.GameObjects.Container {
 
   override destroy(fromScene?: boolean): void {
     this.shadowObj.destroy()
+    this.shadowSoft.destroy()
     for (const s of this.stack) s.gfx.destroy()
     super.destroy(fromScene)
   }
@@ -203,7 +208,12 @@ export class Worker extends Phaser.GameObjects.Container {
     const dx = tx - this.x
     const dy = ty - this.y
     const d  = Math.sqrt(dx * dx + dy * dy)
-    if (d < 2) return
+    if (d < 2) {
+      // Standing still — reset legs
+      this.legL.setPosition(-4, 12)
+      this.legR.setPosition( 4, 12)
+      return
+    }
 
     this.x += (dx / d) * this.speed * speedMul * dt
     this.y += (dy / d) * this.speed * speedMul * dt
@@ -219,6 +229,12 @@ export class Worker extends Phaser.GameObjects.Container {
       -12 + Math.sin(this.facingAngle) * 7,
     )
     this.setRotation((dx / d) * 0.1)
+
+    // Walk-cycle leg bob
+    this.walkPhase += dt * 12 * speedMul
+    const bob = Math.sin(this.walkPhase) * 2
+    this.legL.setPosition(-4, 12 + bob)
+    this.legR.setPosition( 4, 12 - bob)
   }
 
   private _dist(tx: number, ty: number): number {
@@ -228,17 +244,8 @@ export class Worker extends Phaser.GameObjects.Container {
   // ── Stack management ──────────────────────────────────────────────────────
 
   private _pushStack(id: ItemId): void {
-    const def   = ITEMS[id]
-    const color = def?.color ?? 0xffffff
-
     const g = new Phaser.GameObjects.Graphics(this.scene)
-    const lighter = Phaser.Display.Color.IntegerToColor(color); lighter.brighten(25)
-    g.fillStyle(lighter.color)
-    g.fillRect(-STACK_ITEM_SIZE / 2, -STACK_ITEM_SIZE / 2, STACK_ITEM_SIZE - 1, 4)
-    g.fillStyle(color)
-    g.fillRect(-STACK_ITEM_SIZE / 2, -STACK_ITEM_SIZE / 2 + 3, STACK_ITEM_SIZE, STACK_ITEM_SIZE - 3)
-    g.lineStyle(1, 0x000000, 0.3)
-    g.strokeRect(-STACK_ITEM_SIZE / 2, -STACK_ITEM_SIZE / 2, STACK_ITEM_SIZE, STACK_ITEM_SIZE)
+    drawItemIcon(g, id, STACK_ITEM_SIZE)
 
     this.scene.add.existing(g)
     g.setScale(0.1)
@@ -268,30 +275,57 @@ export class Worker extends Phaser.GameObjects.Container {
   // ── Visuals ───────────────────────────────────────────────────────────────
 
   private _buildVisual(): void {
-    this.shadowObj = this.scene.add.ellipse(this.x, this.y + 12, 28, 9, 0x000000, 0.25)
+    // Two-layer shadow (sun top-left)
+    this.shadowSoft = this.scene.add.ellipse(this.x + 2, this.y + 13, 36, 11, 0x000000, 0.13)
+    this.shadowObj  = this.scene.add.ellipse(this.x + 1, this.y + 12, 26, 8,  0x000000, 0.30)
 
+    // Legs
+    this.legL = this.scene.add.ellipse(0, 0, 5, 7, 0x3e2723) as Phaser.GameObjects.Ellipse
+    this.legR = this.scene.add.ellipse(0, 0, 5, 7, 0x3e2723) as Phaser.GameObjects.Ellipse
+    this.add(this.legL); this.add(this.legR)
+    this.legL.setPosition(-4, 12)
+    this.legR.setPosition( 4, 12)
+
+    // Torso with sun-lit top + shaded right
     const torso = new Phaser.GameObjects.Graphics(this.scene)
-    torso.fillStyle(0x00796b)
-    torso.fillRoundedRect(-9, 4, 18, 10, 3)
-    torso.fillStyle(0x26a69a)
+    torso.fillStyle(0x004d40)                          // shaded side
+    torso.fillRoundedRect(-7, 4, 18, 10, 3)
+    torso.fillStyle(0x00796b)                          // front
+    torso.fillRoundedRect(-9, 4, 16, 10, 3)
+    torso.fillStyle(0x26a69a)                          // top face
     torso.fillEllipse(0, 4, 22, 12)
+    torso.fillStyle(0x80cbc4, 0.8)                     // top-left highlight
+    torso.fillEllipse(-5, 2, 10, 5)
     this.add(torso)
 
+    // Head
     const head = new Phaser.GameObjects.Arc(this.scene, 0, -11, 9, 0, 360, false, 0xffcc80)
     this.add(head)
+    const headHi = new Phaser.GameObjects.Arc(this.scene, -2, -13, 4, 0, 360, false, 0xffe0b2, 0.85)
+    this.add(headHi)
 
+    // Eyes
+    const eyeL = new Phaser.GameObjects.Arc(this.scene, -3, -11, 1.2, 0, 360, false, 0x1a1a1a)
+    const eyeR = new Phaser.GameObjects.Arc(this.scene,  3, -11, 1.2, 0, 360, false, 0x1a1a1a)
+    this.add(eyeL); this.add(eyeR)
+
+    // Hard hat
     const hat = new Phaser.GameObjects.Graphics(this.scene)
-    hat.fillStyle(0xfbc02d)
-    hat.fillEllipse(0, -16, 18, 8)
-    hat.fillStyle(0xfff176)
-    hat.fillEllipse(0, -18, 14, 4)
+    hat.fillStyle(0xf57f17, 0.95)                      // brim shadow
+    hat.fillEllipse(0, -15, 20, 6)
+    hat.fillStyle(0xfbc02d)                            // brim
+    hat.fillEllipse(0, -16, 18, 7)
+    hat.fillStyle(0xfff59d)                            // dome highlight
+    hat.fillEllipse(-1, -19, 14, 5)
+    hat.fillStyle(0xffeb3b)                            // dome
+    hat.fillEllipse(0, -18, 13, 4)
     this.add(hat)
 
-    this.dirDot = new Phaser.GameObjects.Arc(this.scene, 0, -16, 2.2, 0, 360, false, 0x4e342e)
+    this.dirDot = new Phaser.GameObjects.Arc(this.scene, 0, -16, 1.8, 0, 360, false, 0xff5252, 0.9)
     this.add(this.dirDot)
 
     this.stateLabel = new Phaser.GameObjects.Text(
-      this.scene, 0, 18, '',
+      this.scene, 0, 22, '',
       { fontSize: '8px', color: '#b2dfdb' } as Phaser.Types.GameObjects.Text.TextStyle,
     )
     this.stateLabel.setOrigin(0.5).setAlpha(0.6)
@@ -300,7 +334,8 @@ export class Worker extends Phaser.GameObjects.Container {
 
   private _syncVisual(): void {
     this.setDepth(this.y)
-    this.shadowObj.setPosition(this.x, this.y + 12).setDepth(this.y - 1)
+    this.shadowObj.setPosition(this.x + 1, this.y + 12).setDepth(this.y - 1)
+    this.shadowSoft.setPosition(this.x + 2, this.y + 13).setDepth(this.y - 2)
     this.stateLabel.setText(this.task?.kind ?? this.macroState)
     this._positionStackSprites()
   }

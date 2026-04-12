@@ -54,6 +54,23 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     this._buildProgressBar()
 
     scene.add.existing(this)
+
+    // Idle sway for tree-like nodes (palm + pineapple bush — they have a
+    // canopy that should react to wind). Sugarcane and fishing spot are
+    // ground-bound and stay still.
+    if (type === 'palm_tree' || type === 'pineapple_bush') {
+      const period = 3200 + Math.random() * 1200
+      const phase  = Math.random() * 1500
+      scene.tweens.add({
+        targets: this.treeGfx,
+        angle:   { from: -2, to: 2 },
+        duration: period,
+        yoyo:    true,
+        repeat:  -1,
+        ease:    'Sine.InOut',
+        delay:   phase,
+      })
+    }
   }
 
   // ── Per-frame tick (called from Game.update) ───────────────────────────────
@@ -165,49 +182,67 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     }
   }
 
-  /** Full healthy palm tree */
+  /** Full healthy palm tree — segmented trunk + 10 individual fronds */
   private _drawPalmFull(): void {
     const g = this.treeGfx
     g.clear()
 
-    // Trunk shadow (offset right-back)
-    g.fillStyle(0x4e342e, 0.45)
-    g.fillRect(4, -12, 10, 42)
+    // Trunk side-shadow (right side, sun is top-left)
+    g.fillStyle(0x4e2c10, 0.75)
+    g.fillRect(2, -16, 8, 46)
 
-    // Trunk
-    g.fillStyle(0x8d6e63)
-    g.fillRect(-5, -12, 10, 42)
+    // Trunk body
+    g.fillStyle(0x7a4f2a)
+    g.fillRect(-5, -16, 9, 46)
 
-    // Trunk highlight stripe
-    g.fillStyle(0xa1887f, 0.5)
-    g.fillRect(-3, -10, 3, 36)
+    // Trunk left highlight
+    g.fillStyle(0xa67244, 0.95)
+    g.fillRect(-4, -16, 2, 46)
 
-    // Canopy: back shadow layer
-    g.fillStyle(0x1a5216, 0.65)
-    g.fillEllipse(8, -46, 56, 30)
+    // Segment ridges
+    g.fillStyle(0x4e2c10, 0.55)
+    for (let i = 0; i < 5; i++) {
+      g.fillRect(-5, -12 + i * 9, 9, 1.5)
+    }
 
-    // Canopy: main
-    g.fillStyle(0x2e7d32)
-    g.fillEllipse(0, -54, 52, 32)
+    // Fronds — coordinates relative to trunk top (~y=-16). Drawn in 3 rows
+    // (back / mid / front) for depth.
+    const drawFrond = (angle: number, len: number, width: number, color: number, alpha = 1): void => {
+      const tipX = Math.cos(angle) * len
+      const tipY = -16 + Math.sin(angle) * len * 0.65
+      const perpX = -Math.sin(angle) * width
+      const perpY =  Math.cos(angle) * width * 0.65
+      g.fillStyle(color, alpha)
+      g.fillTriangle(0, -16, tipX + perpX, tipY + perpY, tipX - perpX, tipY - perpY)
+      g.lineStyle(1, 0x1c5212, 0.55)
+      g.beginPath(); g.moveTo(0, -16); g.lineTo(tipX, tipY); g.strokePath()
+    }
 
-    // Canopy: mid highlight
-    g.fillStyle(0x388e3c)
-    g.fillEllipse(-4, -60, 36, 22)
+    // Back row (darkest)
+    drawFrond(-Math.PI * 0.95, 36, 8, 0x1f6b1a)
+    drawFrond(-Math.PI * 0.05, 36, 8, 0x1f6b1a)
+    drawFrond(-Math.PI * 0.50, 34, 8, 0x1f6b1a)
 
-    // Canopy: top bright spot
-    g.fillStyle(0x43a047)
-    g.fillEllipse(-6, -64, 22, 14)
+    // Mid row
+    drawFrond(-Math.PI * 0.85, 40, 9, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.15, 40, 9, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.65, 38, 9, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.35, 38, 9, 0x2e9c2a)
 
-    // Coconuts (3) nestled under canopy
-    g.fillStyle(0x4e342e)
-    g.fillCircle(-10, -38, 6)
-    g.fillCircle(8,   -36, 6)
-    g.fillCircle(0,   -33, 5)
+    // Front bright row
+    drawFrond(-Math.PI * 0.50, 32, 7, 0x55c25b, 0.95)
+    drawFrond(-Math.PI * 0.75, 30, 7, 0x55c25b, 0.95)
+    drawFrond(-Math.PI * 0.25, 30, 7, 0x55c25b, 0.95)
 
-    // Coconut specular highlight
-    g.fillStyle(0x795548)
-    g.fillCircle(-12, -41, 2.5)
-    g.fillCircle(6,   -39, 2.5)
+    // Coconut cluster nested under fronds
+    g.fillStyle(0x4e2c10)
+    g.fillCircle(-10, -14, 5)
+    g.fillCircle(  9, -13, 5)
+    g.fillCircle(  0, -10, 5)
+
+    g.fillStyle(0x6f4421, 0.95)
+    g.fillCircle(-11, -16, 1.6)
+    g.fillCircle(  8, -15, 1.6)
   }
 
   /** Wilted palm tree — depleted state */

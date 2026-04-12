@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { BALANCE } from '../config/balance'
 import { ITEMS } from '../config/items'
 import { EventBus } from '../systems/EventBus'
+import { drawItemIcon } from '../ui/itemIcons'
 import type { ItemId } from '../types'
 import type { StackSystem } from '../systems/StackSystem'
 import type { Player } from './Player'
@@ -99,13 +100,13 @@ export class ShopCounter extends Phaser.GameObjects.Container {
       return
     }
 
-    const top = stack.peekTop()
-    if (!top || top !== this.productType) {
+    // Drain any matching item from the player's stack regardless of order.
+    const taken = stack.removeFirstMatching((id) => id === this.productType)
+    if (!taken) {
       this._syncDepth()
       return
     }
 
-    stack.removeTopItem()
     this.stock.push(this.productType)
     this.transferCd = BALANCE.TRANSFER_INTERVAL
 
@@ -176,21 +177,12 @@ export class ShopCounter extends Phaser.GameObjects.Container {
 
   private _refreshStockIcons(): void {
     const count = this.stock.length
-    const def   = ITEMS[this.productType]
-    const color = def?.color ?? 0xffffff
 
-    // Grow pool
+    // Grow pool — each slot is a Container holding a Graphics so we can
+    // position the whole thing as one and depth-sort it inside the parent.
     while (this.stockIcons.length < BALANCE.COUNTER_MAX_STOCK) {
-      const lighter = Phaser.Display.Color.IntegerToColor(color)
-      lighter.brighten(20)
-
       const g = new Phaser.GameObjects.Graphics(this.scene)
-      g.fillStyle(lighter.color)
-      g.fillRect(-STOCK_ICON_W / 2, -STOCK_ICON_H / 2, STOCK_ICON_W, STOCK_ICON_H)
-      g.fillStyle(color)
-      g.fillRect(-STOCK_ICON_W / 2, 0, STOCK_ICON_W, STOCK_ICON_H / 2)
-      g.lineStyle(1, 0x000000, 0.2)
-      g.strokeRect(-STOCK_ICON_W / 2, -STOCK_ICON_H / 2, STOCK_ICON_W, STOCK_ICON_H)
+      drawItemIcon(g, this.productType, Math.max(STOCK_ICON_W, STOCK_ICON_H) + 2)
 
       const c = this.scene.add.container(0, 0, [g])
       this.stockIcons.push(c)

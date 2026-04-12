@@ -249,36 +249,212 @@ export class Game extends Phaser.Scene {
   // ── Background ────────────────────────────────────────────────────────────
 
   private _buildBackground(w: number, h: number): void {
-    this.add.rectangle(0, 0, w, h, 0x1565c0).setOrigin(0).setDepth(-100)
-    this.add.rectangle(40, 40, w - 80, h - 80, 0xf4c56a).setOrigin(0).setDepth(-99)
-    this.add.rectangle(80, 80, w - 160, h - 160, 0x4caf50).setOrigin(0).setDepth(-98)
-
-    // Subtle path between zones
-    this.add.rectangle(900, 80, 80, h - 160, 0xc0a060, 0.35).setOrigin(0).setDepth(-97)
-
-    for (const [px, py, pw, ph] of [
-      [120, 120, 60, 50], [320, 240, 80, 40], [760, 420, 70, 55],
-      [120, 560, 90, 45], [780, 620, 65, 50], [340, 780, 75, 40],
-      [1040, 140, 70, 50], [1240, 280, 80, 45], [1060, 700, 75, 50],
-      [1240, 820, 65, 45],
-    ] as [number, number, number, number][]) {
-      this.add.rectangle(px, py, pw, ph, 0x43a047, 0.3).setOrigin(0).setDepth(-97)
+    // ── Palette ────────────────────────────────────────────────────────────
+    // Tropical-cartoon scheme: vivid sea, warm sand, saturated grass.
+    const C = {
+      seaDeep:    0x0d4f7a,
+      sea:        0x1a86c2,
+      seaShimmer: 0x4dd0e1,
+      foam:       0xe8f5fa,
+      sandDark:   0xd9a86b,
+      sand:       0xf2cf86,
+      sandLight:  0xffe6a8,
+      grassDark:  0x35863a,
+      grass:      0x55b249,
+      grassLight: 0x84d36a,
+      path:       0xc69356,
     }
 
+    // Layer 0 — deep ocean
+    this.add.rectangle(0, 0, w, h, C.seaDeep).setOrigin(0).setDepth(-100)
+
+    // Layer 1 — shallow water ring (slightly inset, brighter)
+    this.add.rectangle(20, 20, w - 40, h - 40, C.sea).setOrigin(0).setDepth(-99)
+
+    // Layer 2 — animated water shimmer streaks
+    const shimmerGfx = this.add.graphics().setDepth(-98.5)
+    shimmerGfx.lineStyle(2, C.seaShimmer, 0.35)
+    for (let i = 0; i < 14; i++) {
+      const sx = 30 + Math.random() * (w - 60)
+      const sy = 30 + Math.random() * (h - 60)
+      // Skip streaks that would land on the sand (rough island bbox)
+      if (sx > 60 && sx < w - 60 && sy > 60 && sy < h - 60) continue
+      shimmerGfx.beginPath()
+      shimmerGfx.moveTo(sx - 10, sy)
+      shimmerGfx.lineTo(sx + 10, sy)
+      shimmerGfx.strokePath()
+    }
+    this.tweens.add({
+      targets: shimmerGfx, alpha: { from: 0.5, to: 1 },
+      duration: 2400, yoyo: true, repeat: -1, ease: 'Sine.InOut',
+    })
+
+    // Layer 3 — sand (rounded outer beach)
+    const sandGfx = this.add.graphics().setDepth(-98)
+    sandGfx.fillStyle(C.sandDark)
+    sandGfx.fillRoundedRect(36, 36, w - 72, h - 72, 60)
+    sandGfx.fillStyle(C.sand)
+    sandGfx.fillRoundedRect(44, 44, w - 88, h - 88, 56)
+
+    // Layer 4 — foam ring at the sand/water boundary
+    const foamGfx = this.add.graphics().setDepth(-97.5)
+    foamGfx.lineStyle(4, C.foam, 0.7)
+    foamGfx.strokeRoundedRect(38, 38, w - 76, h - 76, 60)
+    foamGfx.lineStyle(2, C.foam, 0.4)
+    foamGfx.strokeRoundedRect(32, 32, w - 64, h - 64, 64)
+    this.tweens.add({
+      targets: foamGfx, alpha: { from: 0.7, to: 1 },
+      duration: 2100, yoyo: true, repeat: -1, ease: 'Sine.InOut',
+    })
+
+    // Layer 5 — main grass plateau (rounded, inset from sand)
+    const grassGfx = this.add.graphics().setDepth(-97)
+    grassGfx.fillStyle(C.grassDark)
+    grassGfx.fillRoundedRect(72, 72, w - 144, h - 144, 48)
+    grassGfx.fillStyle(C.grass)
+    grassGfx.fillRoundedRect(76, 76, w - 152, h - 152, 46)
+
+    // Layer 6 — subtle path between the two zones
+    const pathGfx = this.add.graphics().setDepth(-96.5)
+    pathGfx.fillStyle(C.path, 0.55)
+    pathGfx.fillRoundedRect(900, 90, 80, h - 180, 30)
+
+    // Layer 7 — grass tufts and dirt patches (deterministic; seeded by index)
+    this._scatterGrassDetail(w, h, C)
+
+    // Layer 8 — decorative palms around the perimeter, with sway
     for (const [px, py] of [
-      [110, 100], [880, 100], [95, 920], [900, 910],
-      [1060, 100], [1320, 110], [1050, 920], [1330, 920],
+      [110, 110], [880, 100], [95, 920], [900, 910],
+      [1060, 110], [1320, 120], [1050, 920], [1330, 920],
+      [60, 480], [60, 240], [60, 720],
     ] as [number, number][]) {
       this._addDecoPalm(px, py)
     }
-
   }
 
+  /** Sprinkle small grass tufts and darker shadow patches to break up the
+   *  flat grass plateau. Deterministic — uses a hash so the layout doesn't
+   *  shimmer between runs. */
+  private _scatterGrassDetail(w: number, h: number, C: { grassDark: number; grassLight: number }): void {
+    const tufts = this.add.graphics().setDepth(-96)
+
+    // Pseudo-random with a fixed seed for stable layout
+    let seed = 12345
+    const rand = (): number => {
+      seed = (seed * 9301 + 49297) % 233280
+      return seed / 233280
+    }
+
+    // ~220 small light grass tufts inside the grass area
+    tufts.fillStyle(C.grassLight, 0.55)
+    for (let i = 0; i < 220; i++) {
+      const x = 90 + rand() * (w - 180)
+      const y = 90 + rand() * (h - 180)
+      // Avoid path
+      if (x > 895 && x < 985) continue
+      const r = 1 + rand() * 1.6
+      tufts.fillCircle(x, y, r)
+    }
+
+    // ~80 darker speckles for shadow detail
+    tufts.fillStyle(C.grassDark, 0.45)
+    for (let i = 0; i < 80; i++) {
+      const x = 90 + rand() * (w - 180)
+      const y = 90 + rand() * (h - 180)
+      if (x > 895 && x < 985) continue
+      const r = 1 + rand() * 2
+      tufts.fillCircle(x, y, r)
+    }
+  }
+
+  /**
+   * Decorative palm — trunk + canopy of individual fronds + coconuts + ground
+   * shadow. The canopy lives in its own container so we can sway just the
+   * top without rotating the trunk roots.
+   */
   private _addDecoPalm(x: number, y: number): void {
-    this.add.rectangle(x, y + 8, 7, 40, 0x795548).setOrigin(0.5, 1).setDepth(y - 5)
-    this.add.ellipse(x, y - 10, 48, 20, 0x1b5e20, 0.3).setDepth(y - 6)
-    this.add.ellipse(x, y - 18, 44, 30, 0x2e7d32, 0.85).setDepth(y - 5)
-    this.add.ellipse(x + 12, y - 10, 32, 20, 0x388e3c, 0.75).setDepth(y - 5)
-    this.add.ellipse(x - 12, y - 10, 32, 20, 0x388e3c, 0.75).setDepth(y - 5)
+    // Soft elongated ground shadow (sun top-left → shadow lower-right)
+    this.add.ellipse(x + 14, y + 18, 64, 18, 0x000000, 0.22).setDepth(y - 6)
+    this.add.ellipse(x + 18, y + 20, 78, 12, 0x000000, 0.12).setDepth(y - 7)
+
+    // Trunk — segmented for texture
+    const trunkGfx = this.add.graphics().setDepth(y - 4)
+    // Side shadow (right of trunk)
+    trunkGfx.fillStyle(0x4e2c10, 0.7)
+    trunkGfx.fillRect(x + 1, y - 36, 7, 48)
+    // Trunk body
+    trunkGfx.fillStyle(0x7a4f2a)
+    trunkGfx.fillRect(x - 5, y - 36, 9, 48)
+    // Highlight
+    trunkGfx.fillStyle(0xa67244, 0.9)
+    trunkGfx.fillRect(x - 4, y - 36, 2, 48)
+    // Trunk segment lines
+    trunkGfx.fillStyle(0x4e2c10, 0.6)
+    for (let i = 0; i < 5; i++) {
+      trunkGfx.fillRect(x - 5, y - 32 + i * 9, 9, 1.5)
+    }
+
+    // Canopy container so the whole crown can sway as one
+    const canopy = this.add.container(x, y - 36)
+    canopy.setDepth(y - 3)
+
+    const fronds = new Phaser.GameObjects.Graphics(this)
+
+    // Fronds — 7 around the top, alternating shades for depth
+    // Each frond: a triangle with a thicker base, swept outward
+    const drawFrond = (angle: number, len: number, width: number, color: number, alpha = 1): void => {
+      const tipX = Math.cos(angle) * len
+      const tipY = Math.sin(angle) * len * 0.65            // squash for top-down feel
+      const perpX = -Math.sin(angle) * width
+      const perpY = Math.cos(angle) * width * 0.65
+      fronds.fillStyle(color, alpha)
+      fronds.fillTriangle(0, 0, tipX + perpX, tipY + perpY, tipX - perpX, tipY - perpY)
+      // Center vein
+      fronds.lineStyle(1, 0x1c5212, 0.6)
+      fronds.beginPath(); fronds.moveTo(0, 0); fronds.lineTo(tipX, tipY); fronds.strokePath()
+    }
+
+    // Back row (darker, slightly behind)
+    drawFrond(-Math.PI * 0.95, 32, 7, 0x1f6b1a)
+    drawFrond(-Math.PI * 0.05, 32, 7, 0x1f6b1a)
+    drawFrond(-Math.PI * 0.5,  30, 7, 0x1f6b1a)
+
+    // Mid row (main green)
+    drawFrond(-Math.PI * 0.85, 36, 8, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.15, 36, 8, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.65, 34, 8, 0x2e9c2a)
+    drawFrond(-Math.PI * 0.35, 34, 8, 0x2e9c2a)
+
+    // Front bright row
+    drawFrond(-Math.PI * 0.5,  28, 6, 0x55c25b, 0.95)
+    drawFrond(-Math.PI * 0.75, 26, 6, 0x55c25b, 0.95)
+    drawFrond(-Math.PI * 0.25, 26, 6, 0x55c25b, 0.95)
+
+    canopy.add(fronds)
+
+    // Coconut cluster at base of fronds
+    const coconuts = new Phaser.GameObjects.Graphics(this)
+    coconuts.fillStyle(0x4e2c10)
+    coconuts.fillCircle(-6, 2, 4)
+    coconuts.fillCircle( 5, 3, 4)
+    coconuts.fillCircle( 0, 6, 4)
+    coconuts.fillStyle(0x6f4421, 0.9)
+    coconuts.fillCircle(-7, 1, 1.5)
+    coconuts.fillCircle( 4, 2, 1.5)
+    canopy.add(coconuts)
+
+    // Idle sway — gentle rotation of canopy only, randomised so palms aren't
+    // synchronised. Period ~3.4-4.4s.
+    const period = 3400 + Math.random() * 1000
+    const phase  = Math.random() * 1000
+    this.tweens.add({
+      targets: canopy,
+      angle:   { from: -2.5, to: 2.5 },
+      duration: period,
+      yoyo:    true,
+      repeat:  -1,
+      ease:    'Sine.InOut',
+      delay:   phase,
+    })
   }
 }

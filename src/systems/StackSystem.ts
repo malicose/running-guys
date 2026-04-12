@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { ITEMS } from '../config/items'
 import { EventBus } from './EventBus'
+import { drawItemIcon } from '../ui/itemIcons'
 import type { ItemId } from '../types'
 import type { Player } from '../entities/Player'
 
@@ -51,7 +52,7 @@ export class StackSystem {
     const def = ITEMS[itemId]
     if (!def) return
 
-    const gfx = this._buildItemGfx(def.color)
+    const gfx = this._buildItemGfx(itemId)
     // Inherit the current bottom angle so new items don't teleport
     const inheritAngle = this.items.length ? this.items[this.items.length - 1].angle : 0
     this.items.push({ id: itemId, gfx, angle: inheritAngle })
@@ -71,20 +72,33 @@ export class StackSystem {
   /** Remove & return the top item id. Returns null if empty. */
   removeTopItem(): ItemId | null {
     if (!this.items.length) return null
-    const item = this.items.pop()!
+    return this._removeAt(this.items.length - 1)
+  }
 
-    this.scene.tweens.add({
-      targets:    item.gfx,
-      scaleX:     0,
-      scaleY:     0,
-      alpha:      0,
-      duration:   120,
-      ease:       'Quad.In',
-      onComplete: () => item.gfx.destroy(),
-    })
+  /**
+   * Find the top-most item that satisfies `predicate`, remove it from the
+   * stack and return its id. Items above the removed slot collapse downward
+   * automatically on the next chain-physics tick because the array order
+   * IS the visual order. Returns null if nothing matches.
+   *
+   * Used by stations / counters so the player can deposit any matching item
+   * regardless of where it sits in the tower.
+   */
+  removeFirstMatching(predicate: (id: ItemId) => boolean): ItemId | null {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (predicate(this.items[i].id)) {
+        return this._removeAt(i)
+      }
+    }
+    return null
+  }
 
-    EventBus.emit('stack:changed', { size: this.items.length, max: this.player.maxStack })
-    return item.id
+  /** Find the top-most matching item without removing it. */
+  peekFirstMatching(predicate: (id: ItemId) => boolean): ItemId | null {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (predicate(this.items[i].id)) return this.items[i].id
+    }
+    return null
   }
 
   /** Flash the top item red (stack-full warning) */
@@ -141,39 +155,29 @@ export class StackSystem {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
-  /**
-   * Builds a pseudo-3D box graphic for one stack item.
-   * Top face: lighter, slightly narrower.
-   * Front face: main color, full width.
-   */
-  private _buildItemGfx(color: number): Phaser.GameObjects.Container {
-    const lighter = Phaser.Display.Color.IntegerToColor(color)
-    lighter.brighten(25)
-    const topColor = lighter.color
+  /** Remove item at given index, play shrink tween, emit change. */
+  private _removeAt(idx: number): ItemId | null {
+    if (idx < 0 || idx >= this.items.length) return null
+    const [item] = this.items.splice(idx, 1)
 
-    const darker = Phaser.Display.Color.IntegerToColor(color)
-    darker.darken(20)
-    const sideColor = darker.color
+    this.scene.tweens.add({
+      targets:    item.gfx,
+      scaleX:     0,
+      scaleY:     0,
+      alpha:      0,
+      duration:   120,
+      ease:       'Quad.In',
+      onComplete: () => item.gfx.destroy(),
+    })
 
+    EventBus.emit('stack:changed', { size: this.items.length, max: this.player.maxStack })
+    return item.id
+  }
+
+  /** Builds a stack item graphic — delegates to the shared icon registry. */
+  private _buildItemGfx(itemId: ItemId): Phaser.GameObjects.Container {
     const g = new Phaser.GameObjects.Graphics(this.scene)
-
-    // Right side face (depth illusion)
-    g.fillStyle(sideColor)
-    g.fillRect(ITEM_SIZE / 2 - 1, -ITEM_SIZE / 2 + 3, 4, ITEM_SIZE - 3)
-
-    // Front face
-    g.fillStyle(color)
-    g.fillRect(-ITEM_SIZE / 2, -ITEM_SIZE / 2 + 4, ITEM_SIZE, ITEM_SIZE - 4)
-
-    // Top face (slightly narrower, lighter)
-    g.fillStyle(topColor)
-    g.fillRect(-ITEM_SIZE / 2, -ITEM_SIZE / 2, ITEM_SIZE - 1, 6)
-
-    // Outline
-    g.lineStyle(1, 0x000000, 0.25)
-    g.strokeRect(-ITEM_SIZE / 2, -ITEM_SIZE / 2, ITEM_SIZE, ITEM_SIZE)
-
-    const container = this.scene.add.container(0, 0, [g])
-    return container
+    drawItemIcon(g, itemId, ITEM_SIZE)
+    return this.scene.add.container(0, 0, [g])
   }
 }
