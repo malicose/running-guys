@@ -46,6 +46,9 @@ export interface ZoneDef {
   counters: CounterSpawnDef[]
   cashRegisterPos:   { x: number; y: number }
   customerSpawnPos:  { x: number; y: number }
+  upgradeBoardPos?:  { x: number; y: number }
+  /** World position of the unlock portal — required when unlockCost > 0. */
+  unlockPortalPos?:  { x: number; y: number }
 }
 
 // ─── Upgrade ─────────────────────────────────────────────────────────────────
@@ -82,6 +85,9 @@ export interface EventMap {
   'money:deposited':  { amount: number }
   'zone:unlocked':    { zoneId: string }
   'upgrade:bought':   { upgradeId: string }
+  'upgrade:applied':  { upgradeId: string; target: 'player' | 'worker'; stat: string; value: number }
+  'economy:changed':  { balance: number }
+  'upgradeboard:proximity': { near: boolean }
   'stack:full':       Record<string, never>
   'stack:changed':    { size: number; max: number }
 }

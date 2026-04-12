@@ -36,4 +36,10 @@ export const BALANCE = {
     cocktail:        30,
     pineapple_juice: 12,
   } as Record<string, number>,
+
+  // ─── Dev / testing ───────────────────────────────────────────────────────
+  /** Starting balance credited on scene create. Set to 0 for real play. */
+  DEV_STARTING_MONEY: 2000,
+  /** How much pressing the `M` dev key grants. */
+  DEV_MONEY_HOTKEY_AMOUNT: 1000,
 } as const

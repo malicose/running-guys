@@ -340,9 +340,11 @@ Every action needs immediate visual + audio feedback:
 
 ### Workers (post-prototype)
 - Workers are NPCs that follow the same proximity rules as the player
-- Each worker is assigned a fixed route: harvest node X → bring to station Y → bring to counter Z
-- Worker is NOT intelligent — it loops its assigned route forever
-- Player assigns routes by tapping worker then tapping nodes/stations in order
+- Workers are autonomous: each zone has a planner that hands tasks to its
+  workers based on world state. Workers do not need (and the player cannot
+  set) per-worker routes — the planner picks the most useful next action
+  every time a worker goes idle, prioritising the most-empty counter and
+  walking the production chain backwards from there
 - Workers have their own visible stack (smaller than player's)
 
 ### Upgrade Shop
@@ -384,7 +386,8 @@ palm tree → stack (chain physics) → coconut press → output tray
 ```
 
 **Implementation notes (decisions made during build):**
-- World size: 800 × 900 px
+- World size originally 800 × 900, expanded to **1000 × 1000** during Phase 2
+  to fit three parallel production chains + cocktail station
 - `ProcessingStation` has a separate output tray zone offset +68 px to the right —
   player must walk there to pick up processed items (creates natural movement)
 - `ZoneDef` extended with `customerSpawnPos: { x, y }` (data-driven spawn point)
@@ -393,13 +396,141 @@ palm tree → stack (chain physics) → coconut press → output tray
 - Drop shadows are separate world-space objects (not container children) so their
   depth is independent of their parent entity
 
-### Next: Phase 2
+### Phase 2 — DONE ✅
 
-Implement in this order:
-1. **Fishing spot + Grill** — second resource node + processing chain → grilled fish counter
-2. **Sugar cane + Sugar mill** — third chain, sets up cocktail station later
-3. **Upgrade board** — physical sign in world, player walks up → panel slides in,
-   buy speed / stack upgrades with collected money (`EconomySystem`)
-4. **Workers** — NPC that loops a fixed route (harvest → station → counter),
-   assigned by player tapping worker then nodes (`WorkerAI` FSM)
-5. **SaveSystem** — localStorage, auto-save on key events (item sold, upgrade bought)
+All five steps complete. The `beach_bar` zone now runs three parallel chains
+(coconut / fish / sugar) + a cocktail station that combines two inputs, with
+worker automation and persistent saves.
+
+1. ✅ **Fishing spot + Grill** — second chain. `fish` / `grilled_fish` items
+   and `grill` recipe already existed; added `fishing_spot` node to
+   `zones.ts` and a proper pond+dock visual in `ResourceNode._drawFishingSpotFull`
+   (dispatched by `nodeType`, replacing the palm-tree-only hardcode).
+2. ✅ **Sugar cane + Sugar mill + Cocktail station** — third chain plus the
+   first multi-ingredient recipe. Activated the already-written
+   `ProcessingStation._hasRequiredInputs()` which had no in-game user until now.
+3. ✅ **Upgrade board** — new `UpgradeBoard` entity (wooden sign in world) +
+   new `EconomySystem` singleton (balance + purchased set, authoritative source)
+   + new `UpgradeMenu` slide-in panel in the UI scene. `UI.ts` money HUD now
+   reads from `EconomySystem` via `economy:changed` instead of tracking its
+   own counter.
+4. ✅ **Workers** — new `Worker` entity with own mini-stack, plus a new
+   `WorkerAI` system that spawns workers by listening to `upgrade:applied` on
+   the EventBus. Originally shipped with an 8-state FSM and data-driven
+   `zone.workerRoutes`; **rewritten in Phase 3** as autonomous workers
+   driven by a per-zone planner — see Phase 3 notes below.
+5. ✅ **SaveSystem** — new `SaveSystem` singleton. Persists `{balance, purchased[]}`
+   to `localStorage` key `stackandsell.save` with 500 ms debounced autosave on
+   `economy:changed`. On load, `EconomySystem.loadFromSave()` re-emits
+   `upgrade:applied` for each restored upgrade, which causes `WorkerAI` to respawn
+   previously unlocked workers without special-case code.
+
+**Implementation notes & decisions from Phase 2:**
+- **Entity worker-facing API**: `ResourceNode.tryTakeItem()`,
+  `ProcessingStation.tryDepositInput() / tryTakeOutput()`,
+  `ShopCounter.tryDepositProduct()`. These bypass the player-proximity checks
+  used by the existing `tick()` flow so workers can interact directly.
+  Player harvest still goes through `tick()`; worker harvest calls
+  `tryTakeItem()` and throttles itself.
+- **Shared node depletion**: player and worker share the same `remaining`
+  counter on a node — they compete for coconuts off the same palm.
+- **Zone-scoped builder arrays**: `_buildZones()` keeps zone-local
+  `zoneNodes / zoneStations / zoneCounters` arrays so the per-zone
+  `WorkerAI` planner only sees its own slice of the world (previously only
+  `zoneCounters` was local).
+- **Upgrade effects are applied directly via a Player reference**
+  held by `EconomySystem._player`. `worker_1` has `stat: 'unlock'` which
+  stores in `purchased` but has no direct player stat effect — `WorkerAI`
+  is the actual consumer via the re-emitted `upgrade:applied` event.
+- **What's NOT saved**: stack contents, node depletion, station queues,
+  counter stocks, active customers, `CashRegister.pendingMoney`, player
+  position. All ephemeral — regenerated in a blank-but-functional state on
+  load. Saving only the economy snapshot keeps the save file tiny and
+  avoids coupling the save format to entity internals.
+- **Load ordering is critical**: `SaveSystem.load()` is called *before*
+  `EconomySystem.init()` so the dev starting-money credit can be skipped,
+  and `loadFromSave()` is called *after* `_buildZones()` so `WorkerAI` is
+  already subscribed when upgrade events are re-emitted. Both ordering
+  requirements are commented inline in `Game.create()`.
+- **Pre-existing type bug fixed**: the `private input!: InputSystem` field
+  on the Game scene was shadowing Phaser's built-in public
+  `Phaser.Scene.input: InputPlugin`, cascading TS2416/TS2345 errors across
+  every `new Entity(this, …)` call. Renamed the field to `inputSystem`.
+- **Dev testing**: `BALANCE.DEV_STARTING_MONEY` (currently 2000) credits on
+  fresh start (skipped when a save is loaded). Hotkeys: `M` → +$1000,
+  `C` → wipe save + restart scene. Remove both when shipping.
+- **Visuals are still procedural** via `Phaser.GameObjects.Graphics` — no
+  sprite assets yet. Architecture is sprite-ready: entity classes
+  encapsulate rendering, so a later pass can replace the `Graphics` calls
+  with `Sprite`/`Image` without touching systems. `ITEMS[id].color` is the
+  extension point for stack item icons when sprites arrive.
+
+### Phase 3 — DONE ✅
+
+1. ✅ **New zone — `cocktail_corner`** with the pineapple chain
+   (`pineapple_bush → juice_press → pineapple_juice` counter at $12) and a
+   real unlock mechanism. New `ZoneUnlockPortal` entity (stone arch sign with
+   a price tag) is spawned in place of any zone whose `unlockCost > 0`.
+   Walking up to the portal auto-charges the player when affordable, fires
+   `zone:unlocked` on the EventBus, and the Game scene swaps the portal out
+   for the actual zone in-place. World expanded to **1400 × 1000** to make
+   room.
+2. ✅ **Autonomous workers** — the original fixed-route worker system was
+   replaced. `WorkerRouteDef` and `zone.workerRoutes` are gone. Each zone now
+   instantiates exactly one `WorkerAI` planner regardless of upgrade state;
+   when a `worker_N` upgrade fires, the planner spawns a new `Worker`
+   pointed at itself. Workers run a tiny 3-state macro FSM
+   (`idle → moving → acting`) and ask the planner for a fresh task every
+   time they go idle.
+
+**Implementation notes & decisions from Phase 3:**
+- **SaveSystem v2**: payload now `{version: 2, balance, purchased[],
+  unlockedZones[]}`. v1 saves still load via a one-line migration that
+  treats `unlockedZones` as empty. Pre-seed of unlocked zones happens
+  *before* subscribing to `zone:unlocked` in `Game.create()` so save-restored
+  zones build exactly once via `_buildZones()`, not twice via the event
+  handler.
+- **Phaser scene reuse footgun**: `scene.restart()` reuses the Scene
+  instance — class field initializers do NOT re-run, so stale entity refs
+  from the previous run leak into the next tick and crash. `Game.create()`
+  now wipes `nodes/stations/counters/registers/upgradeBoards/customerSystems/`
+  `workerAIs/unlockPortals` arrays and `joystickLinked` at the top.
+- **Worker planner algorithm** (`WorkerAI.pickTask`):
+  1. If the worker is carrying something → find the first counter that
+     accepts it (and isn't full), else any station whose recipe takes it.
+     Never drop items.
+  2. Otherwise sort the zone's counters by `stockCount / MAX` ascending
+     (most empty first) and walk the production graph backwards from each:
+     - Station that produces the target has output ready → `fetchOutput`
+     - Else find a missing recipe input the station needs:
+       - A node yielding that input → `harvest`
+       - Or recurse one level deeper for an upstream station's output
+     - Last resort — direct node yielding the target item.
+  Recursion depth is capped at 2 (enough for the 2-step
+  cocktail_station → coconut_press / sugar_mill chain).
+- **Producer maps** (`producerStation: Map<itemId, station>`,
+  `producerNode: Map<itemId, node>`) are built once in the WorkerAI
+  constructor from the zone's slice — O(1) lookups during planning.
+- **Zone-local planner**: `WorkerAI` is constructed unconditionally per zone
+  in `_buildZone()` — even if no worker has been unlocked yet — so the
+  `upgrade:applied` listener is in place when the player buys their first
+  `worker_N`.
+- **Worker.state name collision**: `Phaser.GameObjects.Container` already
+  exposes a public `state` field, so the worker's macro state lives on
+  `macroState` instead — TS2415 if you forget.
+
+### Next: Phase 4+
+
+Roadmap candidates, roughly in priority order:
+
+1. **Worker stat upgrades** — `stat: 'speed' | 'maxStack'` with
+   `target: 'worker'`. `EconomySystem._applyUpgrade` currently only mutates
+   the player; it would need to walk the live worker list (held by each
+   `WorkerAI`) or fire an event workers subscribe to.
+2. **More zones** — third+ island zone behind a higher unlock cost. The
+   portal/planner pipeline already supports this; just add a `ZoneDef` and
+   pick its world coordinates. Possibly a tier-up shop area.
+3. **Sprite-based art pass** — replace procedural `Graphics` visuals. See
+   the visual notes above.
+4. **Sound + polish** — background music, harvest/process/sell/coin SFX,
+   camera shakes on big events.

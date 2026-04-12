@@ -102,6 +102,27 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     this._syncDepth()
   }
 
+  /**
+   * Worker-facing API — take one item without player proximity checks.
+   * Same bookkeeping as player harvest (depletion, events) but the caller
+   * throttles its own rate.
+   * Returns the yielded item id, or null if depleted.
+   */
+  tryTakeItem(): ItemId | null {
+    if (this.depleted) return null
+
+    const item = this.yieldsItem
+    this.remaining--
+    EventBus.emit('item:harvested', {
+      item,
+      nodeId: `${this.nodeType}_${Math.round(this.x)}`,
+    })
+    this._popHarvestFeedback()
+
+    if (this.remaining <= 0) this._deplete()
+    return item
+  }
+
   override destroy(fromScene?: boolean): void {
     this.shadowObj.destroy()
     this.pBarBg.destroy()
@@ -127,7 +148,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     switch (this.nodeType) {
       case 'fishing_spot':    this._drawFishingSpotFull(); return
       case 'sugarcane_field': this._drawSugarcaneFull(); return
-      case 'pineapple_bush':
+      case 'pineapple_bush':  this._drawPineappleBushFull(); return
       case 'palm_tree':
       default:                this._drawPalmFull(); return
     }
@@ -138,7 +159,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     switch (this.nodeType) {
       case 'fishing_spot':    this._drawFishingSpotDepleted(); return
       case 'sugarcane_field': this._drawSugarcaneDepleted(); return
-      case 'pineapple_bush':
+      case 'pineapple_bush':  this._drawPineappleBushDepleted(); return
       case 'palm_tree':
       default:                this._drawPalmDepleted(); return
     }
@@ -311,6 +332,82 @@ export class ResourceNode extends Phaser.GameObjects.Container {
       g.fillStyle(0xa1887f)
       g.fillEllipse(sx, sy - 6, 5, 2)
     }
+  }
+
+  /** Pineapple bush — spiky-leaved bush with two ripe pineapples */
+  private _drawPineappleBushFull(): void {
+    const g = this.treeGfx
+    g.clear()
+
+    // Dirt patch
+    g.fillStyle(0x5d4037, 0.55)
+    g.fillEllipse(0, 18, 56, 14)
+
+    // Back leaf fan (shadow layer)
+    g.fillStyle(0x1b5e20, 0.6)
+    g.fillTriangle(-22, 12, -8, -28,  -2, 14)
+    g.fillTriangle(  4, 14,  10, -32,  22, 12)
+    g.fillTriangle( -8, 14,   2, -36,  10, 14)
+
+    // Front leaf fan
+    g.fillStyle(0x388e3c)
+    g.fillTriangle(-20, 14, -7, -22,   0, 14)
+    g.fillTriangle(  2, 14,  9, -28,  20, 14)
+    g.fillTriangle( -6, 14,  3, -32,  10, 14)
+
+    // Leaf highlights
+    g.fillStyle(0x66bb6a)
+    g.fillTriangle(-14, 10, -6, -18, -2, 12)
+    g.fillTriangle(  4, 12,  8, -22, 14, 10)
+
+    // Pineapple #1 — body (cross-hatched look via two-tone rects)
+    g.fillStyle(0xf57c00)
+    g.fillEllipse(-7, 6, 14, 18)
+    g.fillStyle(0xffb74d)
+    g.fillEllipse(-9, 4, 6, 8)
+    // crown
+    g.fillStyle(0x2e7d32)
+    g.fillTriangle(-12, -2, -7, -14, -2, -2)
+    g.fillTriangle(-10, -3,  -5, -12,  0, -3)
+
+    // Pineapple #2
+    g.fillStyle(0xef6c00)
+    g.fillEllipse(8, 8, 13, 17)
+    g.fillStyle(0xffa726)
+    g.fillEllipse(6, 6, 5, 7)
+    g.fillStyle(0x388e3c)
+    g.fillTriangle(3, 0, 8, -12, 13, 0)
+    g.fillTriangle(5, -1, 9, -10, 12, -1)
+
+    // Speckles on the pineapples
+    g.fillStyle(0x4e342e, 0.55)
+    g.fillCircle(-7, 4,  1)
+    g.fillCircle(-5, 8,  1)
+    g.fillCircle(-9, 10, 1)
+    g.fillCircle( 8, 6,  1)
+    g.fillCircle(10, 10, 1)
+    g.fillCircle( 6, 12, 1)
+  }
+
+  /** Depleted pineapple bush — picked clean, drooping leaves */
+  private _drawPineappleBushDepleted(): void {
+    const g = this.treeGfx
+    g.clear()
+
+    // Dirt patch
+    g.fillStyle(0x4e342e, 0.65)
+    g.fillEllipse(0, 18, 56, 14)
+
+    // Drooping faded leaves
+    g.fillStyle(0x6d4c41, 0.65)
+    g.fillTriangle(-18, 14, -10, -8, -2, 14)
+    g.fillTriangle(  2, 14,   8, -10, 18, 14)
+    g.fillTriangle( -6, 14,   2, -12, 10, 14)
+
+    // Stubs where pineapples were
+    g.fillStyle(0x795548)
+    g.fillEllipse(-7, 12, 6, 4)
+    g.fillEllipse( 8, 12, 6, 4)
   }
 
   /** Depleted fishing spot — murky water, no fish */

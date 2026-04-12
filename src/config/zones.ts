@@ -28,8 +28,24 @@ export const ZONES: ZoneDef[] = [
     ],
     cashRegisterPos:  { x: 440, y: 820 },
     customerSpawnPos: { x: 140, y: 900 },
+    upgradeBoardPos:  { x: 850, y: 780 },
   },
-  // Phase 2+ zones go here
+  {
+    id: 'cocktail_corner',
+    unlockCost: 500,
+    nodes: [
+      { type: 'pineapple_bush', x: 1140, y: 200 },
+    ],
+    stations: [
+      { recipeId: 'juice_press', x: 1140, y: 360 },
+    ],
+    counters: [
+      { itemType: 'pineapple_juice', price: 12, x: 1140, y: 560 },
+    ],
+    cashRegisterPos:  { x: 1140, y: 740 },
+    customerSpawnPos: { x: 1320, y: 900 },
+    unlockPortalPos:  { x: 970, y: 500 },
+  },
 ]
 
 /** Convenience lookup by id */

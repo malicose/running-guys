@@ -55,6 +55,17 @@ export class ShopCounter extends Phaser.GameObjects.Container {
   get isFull():     boolean { return this.stock.length >= BALANCE.COUNTER_MAX_STOCK }
   get isEmpty():    boolean { return this.stock.length === 0 }
 
+  /** Worker-facing API — deposit one matching product. Returns true if accepted. */
+  tryDepositProduct(itemId: ItemId): boolean {
+    if (this.isFull) return false
+    if (itemId !== this.productType) return false
+
+    this.stock.push(itemId)
+    this._refreshStockIcons()
+    EventBus.emit('item:stocked', { item: this.productType, counterId: `counter_${this.productType}` })
+    return true
+  }
+
   /** Customer buys one item — returns price, or null if empty. */
   sellOne(): number | null {
     if (this.isEmpty) return null

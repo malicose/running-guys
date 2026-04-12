@@ -1,10 +1,11 @@
 import Phaser from 'phaser'
 import { Joystick } from '../ui/Joystick'
+import { UpgradeMenu } from '../ui/UpgradeMenu'
 import { EventBus } from '../systems/EventBus'
 
 /**
  * UI scene — always on top, separate camera (never scrolls).
- * Renders HUD: money counter, virtual joystick.
+ * Renders HUD: money counter, virtual joystick, upgrade menu.
  *
  * Game scene accesses this.joystick to inject it into InputSystem.
  */
@@ -14,6 +15,9 @@ export class UI extends Phaser.Scene {
 
   private moneyText!: Phaser.GameObjects.Text
   private money = 0
+
+  /** Kept as a field so the menu's event subscriptions stay alive for the scene lifetime. */
+  private upgradeMenu!: UpgradeMenu
 
   constructor() {
     super({ key: 'UI' })
@@ -39,9 +43,13 @@ export class UI extends Phaser.Scene {
     // ── Virtual joystick ─────────────────────────────────────────────────────
     this.joystick = new Joystick(this)
 
+    // ── Upgrade menu (slide-in panel on the right) ───────────────────────────
+    this.upgradeMenu = new UpgradeMenu(this)
+
     // ── EventBus listeners ───────────────────────────────────────────────────
-    EventBus.on('money:collected', ({ amount }) => {
-      this.money += amount
+    // Money HUD now reads from the authoritative EconomySystem balance.
+    EventBus.on('economy:changed', ({ balance }) => {
+      this.money = balance
       this._refreshMoney()
     })
   }

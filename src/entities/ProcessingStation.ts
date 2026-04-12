@@ -92,6 +92,24 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this._syncDepth()
   }
 
+  // ── Worker-facing API (no proximity checks) ──────────────────────────────
+
+  /** Push one item into the input queue. Returns false if rejected. */
+  tryDepositInput(itemId: ItemId): boolean {
+    if (this.inputQueue.length >= BALANCE.STATION_QUEUE_MAX) return false
+    if (!this.recipe.input.includes(itemId)) return false
+
+    this.inputQueue.push(itemId)
+    EventBus.emit('item:deposited', { item: itemId, stationId: this.recipe.id })
+    this._popInputFeedback()
+    return true
+  }
+
+  /** Pop one item from the output buffer, or null if empty. */
+  tryTakeOutput(): ItemId | null {
+    return this.outputBuffer.pop() ?? null
+  }
+
   override destroy(fromScene?: boolean): void {
     this.shadowObj.destroy()
     this.trayShadow.destroy()
