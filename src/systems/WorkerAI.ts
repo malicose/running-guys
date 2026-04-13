@@ -114,6 +114,30 @@ export class WorkerAI {
     this.workers = []
   }
 
+  /** Live list of workers in this zone — used by CashRegister to know which
+   *  nearby NPCs count as a cashier. */
+  get workerList(): readonly Worker[] { return this.workers }
+
+  // ── Dynamic zone growth (purchase slots) ─────────────────────────────────
+
+  /** Plug a newly-materialized node into the planner after its PurchaseSlot
+   *  was bought. Existing producer mapping is preserved if another source
+   *  of the same item already exists. */
+  registerNode(node: ResourceNode): void {
+    this.nodes.push(node)
+    if (!this.producerNode.has(node.yieldsItem)) {
+      this.producerNode.set(node.yieldsItem, node)
+    }
+  }
+
+  /** Same as registerNode, but for a purchased processing station. */
+  registerStation(station: ProcessingStation): void {
+    this.stations.push(station)
+    if (!this.producerStation.has(station.recipe.output)) {
+      this.producerStation.set(station.recipe.output, station)
+    }
+  }
+
   // ── Planner ───────────────────────────────────────────────────────────────
 
   /**

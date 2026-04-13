@@ -519,18 +519,129 @@ worker automation and persistent saves.
   exposes a public `state` field, so the worker's macro state lives on
   `macroState` instead — TS2415 if you forget.
 
-### Next: Phase 4+
+### Phase 5 — DONE ✅
+
+1. ✅ **In-world purchase slots for extra nodes & stations** — new
+   [PurchaseSlot](src/entities/PurchaseSlot.ts) entity. `NodeSpawnDef` /
+   `StationSpawnDef` gained an optional `purchase?: { slotId; cost }` field
+   in [types/index.ts](src/types/index.ts); any entry with it starts as a
+   dashed-footprint marker in the world instead of a real entity, and
+   materializes in place when the player walks onto it and pays. Unlike
+   the upgrade-menu route, purchases are physical — you stand on the spot.
+   [zones.ts](src/config/zones.ts) now ships 3 extra resource nodes + 3
+   extra processing stations in `beach_bar`, plus a duplicate pineapple
+   bush + juice press in `cocktail_corner`.
+
+2. ✅ **Queue system (counter + register)** — every
+   [ShopCounter](src/entities/ShopCounter.ts) and
+   [CashRegister](src/entities/CashRegister.ts) now owns an ordered
+   `queue: Customer[]` with `joinQueue / leaveQueue / indexOfInQueue /
+   getQueueSlotPos` API. Customers walk to the slot position computed
+   from their live index in the queue; when the head leaves, everyone's
+   index shifts and they naturally step forward on the next tick. Queue
+   geometry is config-driven via `BALANCE.QUEUE_FRONT_OFFSET` /
+   `QUEUE_SLOT_SPACING`; past `COUNTER_QUEUE_CAP_SLOTS` /
+   `REGISTER_QUEUE_CAP_SLOTS` extras pile onto the last slot (unbounded
+   queue length, capped visible slots).
+
+3. ✅ **Cashier gating on the register** — customers at the head of the
+   register queue can only deposit money while a "cashier" is within
+   `BALANCE.CASHIER_RADIUS`. A cashier is *any* entity with `{x, y}`:
+   the player or any worker in the zone. `CashRegister` takes a
+   `setCashierCandidates(fn)` hook and re-evaluates the list every frame,
+   so workers unlocked mid-game are picked up automatically. A small
+   ✓/✗ indicator above the register shows current cashier status.
+
+4. ✅ **Customer patience removed** — `CUSTOMER_PATIENCE` and the
+   patience-bar visuals are gone; customers wait indefinitely.
+   [Customer](src/entities/Customer.ts) FSM simplified to three states
+   (`queueing_counter / queueing_register / leaving`). Spawn interval
+   dropped from 8 s → 2.2 s and a new `CUSTOMER_MAX_PER_ZONE` soft cap
+   (24) prevents runaway queues if production stalls.
+   [CustomerSystem](src/systems/CustomerSystem.ts) now always spawns —
+   target counter is picked by shortest queue, tie-broken by most stock.
+
+**Implementation notes & decisions from Phase 5:**
+- **SaveSystem v3**: payload now
+  `{version: 3, balance, purchased, unlockedZones, unlockedSlots}`. v1
+  and v2 saves migrate by treating the missing fields as empty.
+- **Purchase slot wiring** ([Game.ts](src/scenes/Game.ts)): zone build
+  is a two-pass operation. Pass 1 constructs initial (already-unlocked)
+  nodes/stations into zone-local arrays. Pass 2 constructs the
+  `WorkerAI` planner from those arrays (so its `producerNode` /
+  `producerStation` maps and zone-center calculation see a populated
+  world). Pass 3 spawns `PurchaseSlot` markers for deferred entries;
+  each marker's build closure captures the planner ref and calls
+  `worker.registerNode / registerStation` on purchase so the planner
+  learns about the new entity without having to rebuild.
+- **`WorkerAI.workerList`**: new readonly getter exposing the live
+  `workers[]`. Used by `CashRegister.setCashierCandidates` to build the
+  cashier list each frame (player + zone workers).
+- **`WorkerAI.registerNode / registerStation`**: append to internal
+  arrays and add to producer maps *only if absent*. Buying a second
+  palm tree does not override the first palm as the canonical producer
+  of `coconut` — the planner happily routes through either.
+- **Customer FSM**: patience removed entirely. The `ARRIVE_DIST` check
+  is now 6 px (tight) so customers reach their exact slot before the
+  "am I the head?" check triggers. Destroy() defensively calls
+  `counter.leaveQueue(this)` / `register.leaveQueue(this)` in case a
+  customer is destroyed mid-flight.
+- **CustomerSystem cap**: `CUSTOMER_MAX_PER_ZONE = 24`. With no
+  patience, customers who can't be served just accumulate forever; the
+  cap prevents memory/perf blowup if the player abandons a zone. Spawn
+  is paused while at the cap, not denied-and-retimed.
+- **`ShopCounter.tick` unchanged path**: the player can still walk up
+  and drop stock on a counter that has a customer queue — the transfer
+  path doesn't touch the queue, it just happens alongside it.
+- **Config payload deliberately light**: each purchase slot carries
+  only `slotId + cost`. The *type* / *recipeId* / *position* come from
+  the same spawn def the pass-through path uses, so a purchased entry
+  is identical to a pre-placed one in every respect except gating.
+
+### Phase 4 — DONE ✅
+
+1. ✅ **Worker stat upgrades** — `worker_speed_1/2` and `worker_stack_1/2`
+   live in [upgrades.ts](src/config/upgrades.ts). `EconomySystem` does not
+   apply them directly; instead `WorkerAI.onUpgrade` handles any
+   `target: 'worker'` event — `unlock` spawns a worker, `speed`/`maxStack`
+   walk the live `workers[]` and mutate in place. The latest upgraded
+   values are also cached on `WorkerAI` (`workerSpeed`, `workerMaxStack`)
+   so workers spawned *after* the stat upgrade inherit the upgraded values
+   on spawn (applies on save-load too, since `upgrade:applied` events are
+   re-emitted by `EconomySystem.loadFromSave()` in purchase order and the
+   stat events land before the unlock events that spawn the workers — as
+   long as the config keeps unlocks before stat upgrades in the order
+   they're saved, which they are because prereq chains enforce it).
+
+2. ✅ **Per-item icon registry** — [src/ui/itemIcons.ts](src/ui/itemIcons.ts)
+   has bespoke `Graphics` drawers for every item in `ITEMS` (coconut,
+   coconut_milk, fish, grilled_fish, sugarcane, sugar, pineapple,
+   pineapple_juice, cocktail). Drawers render into the local frame of the
+   passed `Graphics` centered at (0,0), bounded by `size × size`. All
+   visible stacks consume them: player stack via
+   [StackSystem](src/systems/StackSystem.ts), worker mini-stack via
+   [Worker](src/entities/Worker.ts), station input queue + output tray
+   via [ProcessingStation](src/entities/ProcessingStation.ts), and shop
+   counter visible stock via [ShopCounter](src/entities/ShopCounter.ts).
+   One drawer per item = a coconut looks like a coconut everywhere, not
+   a beige box on the player and a brown circle on the tree.
+
+### Next: Phase 6+
 
 Roadmap candidates, roughly in priority order:
 
-1. **Worker stat upgrades** — `stat: 'speed' | 'maxStack'` with
-   `target: 'worker'`. `EconomySystem._applyUpgrade` currently only mutates
-   the player; it would need to walk the live worker list (held by each
-   `WorkerAI`) or fire an event workers subscribe to.
+1. **Dedicated cashier worker** — a stationary NPC bought via upgrade
+   that parks itself next to a register permanently. Current cashier
+   check already accepts any `{x,y}` so the mechanic is in place; just
+   needs a new `Worker` subtype (or a `stationaryTarget` on the existing
+   one) plus an `upgrades.ts` entry.
 2. **More zones** — third+ island zone behind a higher unlock cost. The
-   portal/planner pipeline already supports this; just add a `ZoneDef` and
-   pick its world coordinates. Possibly a tier-up shop area.
-3. **Sprite-based art pass** — replace procedural `Graphics` visuals. See
-   the visual notes above.
-4. **Sound + polish** — background music, harvest/process/sell/coin SFX,
-   camera shakes on big events.
+   portal/planner/save pipeline already supports this; need content: 1–2
+   new items with icons in [itemIcons.ts](src/ui/itemIcons.ts), recipes
+   in [recipes.ts](src/config/recipes.ts), and a new entry in
+   [zones.ts](src/config/zones.ts).
+3. **Sound + polish** — background music, harvest/process/sell/coin SFX,
+   camera shakes on big events. Biggest game-feel win per hour of work.
+4. **Sprite-based art pass** — replace procedural `Graphics` visuals with
+   real sprite assets. Architecture is sprite-ready (entities encapsulate
+   rendering) but procedural icons read well enough that this can wait.

@@ -19,16 +19,29 @@ export interface RecipeDef {
 
 // ─── Zone ────────────────────────────────────────────────────────────────────
 
+/**
+ * Optional "buy in-world" gating for an entity. If set, the entity is NOT
+ * spawned on zone build — instead a PurchaseSlot marker appears at the same
+ * position, which the player can walk onto to pay `cost` and materialize
+ * the real entity in-place. Purchased slot ids persist via SaveSystem.
+ */
+export interface PurchaseInfo {
+  slotId: string
+  cost:   number
+}
+
 export interface NodeSpawnDef {
   type: string        // matches a ResourceNodeType
   x: number
   y: number
+  purchase?: PurchaseInfo
 }
 
 export interface StationSpawnDef {
   recipeId: string    // matches a RecipeDef.id
   x: number
   y: number
+  purchase?: PurchaseInfo
 }
 
 export interface CounterSpawnDef {
@@ -84,6 +97,7 @@ export interface EventMap {
   'money:collected':  { amount: number }
   'money:deposited':  { amount: number }
   'zone:unlocked':    { zoneId: string }
+  'slot:purchased':   { slotId: string }
   'upgrade:bought':   { upgradeId: string }
   'upgrade:applied':  { upgradeId: string; target: 'player' | 'worker'; stat: string; value: number }
   'economy:changed':  { balance: number }

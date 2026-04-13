@@ -6,6 +6,7 @@ import { drawItemIcon } from '../ui/itemIcons'
 import type { ItemId } from '../types'
 import type { StackSystem } from '../systems/StackSystem'
 import type { Player } from './Player'
+import type { Customer } from './Customer'
 
 const STOCK_ICON_W  = 14
 const STOCK_ICON_H  = 10
@@ -27,6 +28,9 @@ export class ShopCounter extends Phaser.GameObjects.Container {
 
   private stock: ItemId[] = []
   private transferCd = 0
+
+  /** Ordered queue of customers waiting at this counter. Index 0 is the head. */
+  private queue: Customer[] = []
 
   // Visuals
   private shadowObj!:    Phaser.GameObjects.Ellipse
@@ -55,6 +59,37 @@ export class ShopCounter extends Phaser.GameObjects.Container {
   get stockCount(): number { return this.stock.length }
   get isFull():     boolean { return this.stock.length >= BALANCE.COUNTER_MAX_STOCK }
   get isEmpty():    boolean { return this.stock.length === 0 }
+
+  // ── Queue API (used by Customer) ─────────────────────────────────────────
+
+  /** Total number of customers queued here. */
+  get queueLength(): number { return this.queue.length }
+
+  /** Append a customer to the queue. Returns its index. */
+  joinQueue(c: Customer): number {
+    const idx = this.queue.indexOf(c)
+    if (idx !== -1) return idx
+    this.queue.push(c)
+    return this.queue.length - 1
+  }
+
+  /** Remove a customer from the queue (by value). Shifts later customers forward. */
+  leaveQueue(c: Customer): void {
+    const idx = this.queue.indexOf(c)
+    if (idx !== -1) this.queue.splice(idx, 1)
+  }
+
+  /** Current index of a queued customer, or -1 if not queued. */
+  indexOfInQueue(c: Customer): number { return this.queue.indexOf(c) }
+
+  /** World position a customer should stand at for the given queue index. */
+  getQueueSlotPos(index: number): { x: number; y: number } {
+    const clamped = Math.min(index, BALANCE.COUNTER_QUEUE_CAP_SLOTS - 1)
+    return {
+      x: this.x,
+      y: this.y + BALANCE.QUEUE_FRONT_OFFSET + clamped * BALANCE.QUEUE_SLOT_SPACING,
+    }
+  }
 
   /** Worker-facing API — deposit one matching product. Returns true if accepted. */
   tryDepositProduct(itemId: ItemId): boolean {

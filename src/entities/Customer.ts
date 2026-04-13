@@ -4,38 +4,37 @@ import type { ShopCounter } from './ShopCounter'
 import type { CashRegister } from './CashRegister'
 
 type CustomerState =
-  | 'walking_to_counter'
-  | 'at_counter'
-  | 'walking_to_register'
-  | 'at_register'
+  | 'queueing_counter'    // walking to / waiting in counter queue
+  | 'queueing_register'   // walking to / waiting in register queue
   | 'leaving'
   | 'done'
 
-const ARRIVE_DIST  = 32    // px — close enough to target
-const PAY_PAUSE    = 0.45  // seconds customer stands at register before leaving
+const ARRIVE_DIST = 6  // px — customer counts as "in slot" when this close
 
 /**
- * Customer NPC — autonomous agent that drives the economy loop:
- *   spawn → counter → register → exit
+ * Customer NPC — walks to a counter, queues, buys, queues at the register,
+ * pays (only if a cashier is present), leaves.
  *
- * No Phaser physics — position is updated manually for simplicity.
- * Y-sort depth updated every frame.
+ * Queues are managed on ShopCounter / CashRegister: the customer calls
+ * `joinQueue(this)` on state entry and reads `indexOfInQueue(this)` every
+ * tick to compute the slot position it should walk to. When the head of the
+ * queue leaves, all other customers' indexes shift and they naturally step
+ * forward on the next tick.
  *
- * Visual: same pseudo-3D style as Player but purple/smaller.
+ * Patience was removed — customers wait indefinitely. The game-side pressure
+ * comes from production throughput, not impatient NPCs walking away.
  */
 export class Customer extends Phaser.GameObjects.Container {
   /** Call tick() — returns true when this customer can be destroyed */
   get isDone(): boolean { return this._state === 'done' }
 
-  private _state:    CustomerState = 'walking_to_counter'
+  private _state:    CustomerState
   private counter:   ShopCounter
   private register:  CashRegister
   private exitX:     number
   private exitY:     number
 
-  private patience   = BALANCE.CUSTOMER_PATIENCE
-  private payTimer   = 0
-  private pricePaid  = 0
+  private pricePaid   = 0
   private facingAngle = 0
 
   // Visuals
@@ -45,8 +44,6 @@ export class Customer extends Phaser.GameObjects.Container {
   private legL!:       Phaser.GameObjects.Ellipse
   private legR!:       Phaser.GameObjects.Ellipse
   private walkPhase   = 0
-  private patienceBar!: Phaser.GameObjects.Rectangle
-  private patienceBg!:  Phaser.GameObjects.Rectangle
 
   // ── Construction ──────────────────────────────────────────────────────────
 
@@ -68,6 +65,12 @@ export class Customer extends Phaser.GameObjects.Container {
     this._buildVisual()
     scene.add.existing(this)
 
+    // Immediately claim a slot in the counter's queue — position is
+    // recomputed each tick from the live index so the customer walks in
+    // smoothly from the spawn point.
+    this.counter.joinQueue(this)
+    this._state = 'queueing_counter'
+
     // Spawn pop-in
     this.setScale(0.2)
     scene.tweens.add({ targets: this, scaleX: 1, scaleY: 1, duration: 200, ease: 'Back.Out' })
@@ -80,52 +83,45 @@ export class Customer extends Phaser.GameObjects.Container {
     const dt = delta / 1000
 
     switch (this._state) {
-      case 'walking_to_counter':
-        this._moveTo(this.counter.x, this.counter.y - 36, dt)
-        if (this._distTo(this.counter.x, this.counter.y - 36) < ARRIVE_DIST) {
-          this._state = 'at_counter'
-        }
-        break
+      case 'queueing_counter': {
+        const idx = this.counter.indexOfInQueue(this)
+        const slot = this.counter.getQueueSlotPos(Math.max(idx, 0))
+        this._moveTo(slot.x, slot.y, dt)
 
-      case 'at_counter': {
-        this._patienceBar(true)
-        if (!this.counter.isEmpty) {
+        // Only the head of the queue can try to buy, and only when in slot.
+        if (idx === 0 && this._distTo(slot.x, slot.y) < ARRIVE_DIST && !this.counter.isEmpty) {
           const earned = this.counter.sellOne()
           if (earned !== null) {
             this.pricePaid = earned
-            this._patienceBar(false)
-            this._state = 'walking_to_register'
-          }
-        } else {
-          this.patience -= dt
-          this._updatePatienceBar()
-          if (this.patience <= 0) {
-            this._patienceBar(false)
-            this._state = 'leaving'
+            this.counter.leaveQueue(this)
+            this.register.joinQueue(this)
+            this._state = 'queueing_register'
           }
         }
         break
       }
 
-      case 'walking_to_register':
-        this._moveTo(this.register.x, this.register.y - 30, dt)
-        if (this._distTo(this.register.x, this.register.y - 30) < ARRIVE_DIST) {
-          this._state = 'at_register'
-          this.payTimer = PAY_PAUSE
-        }
-        break
+      case 'queueing_register': {
+        const idx = this.register.indexOfInQueue(this)
+        const slot = this.register.getQueueSlotPos(Math.max(idx, 0))
+        this._moveTo(slot.x, slot.y, dt)
 
-      case 'at_register':
-        this.payTimer -= dt
-        if (this.payTimer <= 0) {
+        // Head of the register queue pays — but only while a cashier is present.
+        if (
+          idx === 0 &&
+          this._distTo(slot.x, slot.y) < ARRIVE_DIST &&
+          this.register.hasCashier
+        ) {
           this.register.addMoney(this.pricePaid)
+          this.register.leaveQueue(this)
           this._state = 'leaving'
         }
         break
+      }
 
       case 'leaving':
         this._moveTo(this.exitX, this.exitY, dt)
-        if (this._distTo(this.exitX, this.exitY) < ARRIVE_DIST) {
+        if (this._distTo(this.exitX, this.exitY) < 32) {
           this._vanish()
         }
         break
@@ -135,10 +131,11 @@ export class Customer extends Phaser.GameObjects.Container {
   }
 
   override destroy(fromScene?: boolean): void {
+    // Defensive: make sure we aren't left in a queue if destroyed mid-flight.
+    this.counter.leaveQueue(this)
+    this.register.leaveQueue(this)
     this.shadowObj.destroy()
     this.shadowSoft.destroy()
-    this.patienceBg.destroy()
-    this.patienceBar.destroy()
     super.destroy(fromScene)
   }
 
@@ -236,37 +233,11 @@ export class Customer extends Phaser.GameObjects.Container {
     // Direction dot
     this.dirDot = new Phaser.GameObjects.Arc(this.scene, 0, -16, 1.8, 0, 360, false, 0xff5252, 0.9)
     this.add(this.dirDot)
-
-    // Patience bar (world-space, shown only while waiting)
-    this.patienceBg = this.scene.add
-      .rectangle(this.x, this.y - 26, 26, 5, 0x333333, 0.7)
-      .setVisible(false).setDepth(9995)
-
-    this.patienceBar = this.scene.add
-      .rectangle(this.x - 12, this.y - 26, 24, 3, 0x4caf50)
-      .setOrigin(0, 0.5).setVisible(false).setDepth(9996)
-  }
-
-  private _patienceBar(visible: boolean): void {
-    this.patienceBg.setVisible(visible)
-    this.patienceBar.setVisible(visible)
-  }
-
-  private _updatePatienceBar(): void {
-    const pct = this.patience / BALANCE.CUSTOMER_PATIENCE
-    this.patienceBar.setDisplaySize(24 * pct, 3)
-
-    // Colour shifts green → red as patience depletes
-    const r = Math.round(255 * (1 - pct))
-    const g = Math.round(200 * pct)
-    this.patienceBar.setFillStyle(Phaser.Display.Color.GetColor(r, g, 50))
   }
 
   private _syncVisuals(): void {
     this.setDepth(this.y)
     this.shadowObj.setPosition(this.x + 1, this.y + 12).setDepth(this.y - 1)
     this.shadowSoft.setPosition(this.x + 2, this.y + 13).setDepth(this.y - 2)
-    this.patienceBg.setPosition(this.x, this.y - 28)
-    this.patienceBar.setPosition(this.x - 12, this.y - 28)
   }
 }

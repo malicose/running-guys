@@ -22,12 +22,19 @@ export const BALANCE = {
   COUNTER_MAX_STOCK:        5,      // items on counter before full
 
   // ─── Customers ───────────────────────────────────────────────────────────
-  CUSTOMER_SPAWN_INTERVAL:  8.0,    // seconds between spawns
+  CUSTOMER_SPAWN_INTERVAL:  2.2,    // seconds between spawns
   CUSTOMER_SPEED:           90,     // px / s
-  CUSTOMER_PATIENCE:        20.0,   // seconds before leaving unhappy
+  CUSTOMER_MAX_PER_ZONE:    24,     // soft cap — pause spawning when reached
+
+  // ─── Queues (counter + register) ─────────────────────────────────────────
+  QUEUE_SLOT_SPACING:       30,     // px between successive customers in line
+  QUEUE_FRONT_OFFSET:       42,     // px from entity centre to the first slot
+  COUNTER_QUEUE_CAP_SLOTS:  6,      // slot count with unique positions; extras pile on last
+  REGISTER_QUEUE_CAP_SLOTS: 6,
 
   // ─── Cash register ───────────────────────────────────────────────────────
-  REGISTER_COLLECT_RADIUS:  70,     // px
+  REGISTER_COLLECT_RADIUS:  70,     // px — player collects pending money
+  CASHIER_RADIUS:           64,     // px — cashier counts as present if within this of register
 
   // ─── Prices (fallback; counters override via ZoneDef) ────────────────────
   PRICES: {

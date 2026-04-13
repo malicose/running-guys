@@ -6,6 +6,7 @@ import { ShopCounter } from '../entities/ShopCounter'
 import { CashRegister } from '../entities/CashRegister'
 import { UpgradeBoard } from '../entities/UpgradeBoard'
 import { ZoneUnlockPortal } from '../entities/ZoneUnlockPortal'
+import { PurchaseSlot } from '../entities/PurchaseSlot'
 import { InputSystem } from '../systems/InputSystem'
 import { StackSystem } from '../systems/StackSystem'
 import { CustomerSystem } from '../systems/CustomerSystem'
@@ -13,9 +14,21 @@ import { WorkerAI } from '../systems/WorkerAI'
 import { EconomySystem } from '../systems/EconomySystem'
 import { SaveSystem } from '../systems/SaveSystem'
 import { EventBus } from '../systems/EventBus'
+import { RECIPE_BY_ID } from '../config/recipes'
+import { ITEMS } from '../config/items'
 import { ZONES } from '../config/zones'
 import type { UI } from './UI'
-import type { ResourceNodeType, ZoneDef } from '../types'
+import type { ResourceNodeType, ZoneDef, NodeSpawnDef, StationSpawnDef } from '../types'
+
+/**
+ * Record used to materialize a real entity when a purchase slot is bought.
+ * The `build` closure captures everything needed — position, zone arrays,
+ * WorkerAI planner — so the event handler only needs the slotId to dispatch.
+ */
+interface PendingSlot {
+  slot:  PurchaseSlot
+  build: () => void
+}
 
 export class Game extends Phaser.Scene {
   private player!:          Player
@@ -29,11 +42,16 @@ export class Game extends Phaser.Scene {
   private customerSystems:  CustomerSystem[]    = []
   private workerAIs:        WorkerAI[]          = []
   private unlockPortals:    ZoneUnlockPortal[]  = []
+  private purchaseSlots:    PurchaseSlot[]      = []
+
+  /** slotId → pending build closure; fired when `slot:purchased` arrives. */
+  private pendingSlots: Map<string, PendingSlot> = new Map()
 
   private joystickLinked = false
 
-  // Bound EventBus handler stored so the matching `off()` works on shutdown.
-  private _onZoneUnlockedBound = (p: { zoneId: string }): void => this._onZoneUnlocked(p.zoneId)
+  // Bound EventBus handlers stored so the matching `off()` works on shutdown.
+  private _onZoneUnlockedBound  = (p: { zoneId: string }): void => this._onZoneUnlocked(p.zoneId)
+  private _onSlotPurchasedBound = (p: { slotId: string }): void => this._onSlotPurchased(p.slotId)
 
   constructor() {
     super({ key: 'Game' })
@@ -58,6 +76,8 @@ export class Game extends Phaser.Scene {
     this.customerSystems = []
     this.workerAIs       = []
     this.unlockPortals   = []
+    this.purchaseSlots   = []
+    this.pendingSlots    = new Map()
     this.joystickLinked  = false
 
     const W = 1400, H = 1000
@@ -78,22 +98,27 @@ export class Game extends Phaser.Scene {
       balance:       EconomySystem.balance,
       purchased:     [...EconomySystem.purchased],
       unlockedZones: [...EconomySystem.unlockedZones],
+      unlockedSlots: [...EconomySystem.unlockedSlots],
     }))
 
-    // Pre-seed unlocked zones from the save BEFORE building so portals don't
-    // spawn for zones the player already paid to open. We do this *before*
-    // subscribing to `zone:unlocked` so the build happens once via _buildZones,
-    // not twice via the event handler.
+    // Pre-seed unlocked zones + slots from the save BEFORE building so
+    // portals / purchase markers don't spawn for things the player already
+    // paid for. We do this *before* subscribing to the EventBus so the build
+    // happens once via _buildZones, not twice via the event handler.
     const preUnlocked = saved?.unlockedZones ?? []
     for (const zoneId of preUnlocked) EconomySystem.forceUnlockZone(zoneId)
+    const preSlots = saved?.unlockedSlots ?? []
+    for (const slotId of preSlots) EconomySystem.forceUnlockSlot(slotId)
 
-    // Listen for runtime unlock purchases (player walking up to a portal).
-    // Bound handler so we can `off()` it on shutdown — without this, every
-    // scene.restart() would leave a stale handler on the bus and trigger
-    // duplicate zone builds next time someone unlocks a zone.
-    EventBus.on('zone:unlocked', this._onZoneUnlockedBound)
+    // Listen for runtime unlock purchases (player walking up to a portal or
+    // purchase slot). Bound handlers so we can `off()` them on shutdown —
+    // without this, every scene.restart() would leave stale handlers on the
+    // bus and trigger duplicate builds next time someone purchases.
+    EventBus.on('zone:unlocked',  this._onZoneUnlockedBound)
+    EventBus.on('slot:purchased', this._onSlotPurchasedBound)
     this.events.once('shutdown', () => {
-      EventBus.off('zone:unlocked', this._onZoneUnlockedBound)
+      EventBus.off('zone:unlocked',  this._onZoneUnlockedBound)
+      EventBus.off('slot:purchased', this._onSlotPurchasedBound)
       // WorkerAI subscribes to `upgrade:applied` in its constructor — without
       // an explicit destroy() the old planners stay on the bus across
       // restarts and would each spawn a duplicate worker on the next purchase.
@@ -142,6 +167,7 @@ export class Game extends Phaser.Scene {
     for (const r of this.registers)        r.tick(delta, this.player)
     for (const b of this.upgradeBoards)    b.tick(delta, this.player)
     for (const p of this.unlockPortals)    p.tick(delta, this.player)
+    for (const ps of this.purchaseSlots)   ps.tick(delta, this.player)
     for (const w of this.workerAIs)        w.tick(delta)
     for (const cs of this.customerSystems) cs.tick(delta)
   }
@@ -166,41 +192,73 @@ export class Game extends Phaser.Scene {
   }
 
   private _buildZone(zone: ZoneDef): void {
-    // Zone-scoped arrays so WorkerRouteDef indices resolve correctly
-    // when a zone has its own slice of nodes/stations/counters.
+    // Zone-scoped arrays so the WorkerAI planner only sees this zone's
+    // slice of the world. Initial (already-unlocked) entities are built
+    // into these arrays *before* the WorkerAI is constructed so its
+    // producer maps are populated; purchase slots hold deferred build
+    // closures that call registerNode/registerStation after the fact.
     const zoneNodes: ResourceNode[] = []
-    for (const def of zone.nodes) {
-      const n = new ResourceNode(this, def.x, def.y, def.type as ResourceNodeType)
-      this.nodes.push(n)
-      zoneNodes.push(n)
-    }
-
     const zoneStations: ProcessingStation[] = []
-    for (const def of zone.stations) {
-      const s = new ProcessingStation(this, def.x, def.y, def.recipeId)
-      this.stations.push(s)
-      zoneStations.push(s)
+    const zoneCounters: ShopCounter[] = []
+
+    // Split purchasable defs out so we can wire them up after the planner
+    // exists (the build closure captures the planner ref).
+    const pendingNodeDefs:    NodeSpawnDef[]    = []
+    const pendingStationDefs: StationSpawnDef[] = []
+
+    for (const def of zone.nodes) {
+      if (def.purchase && !EconomySystem.isSlotUnlocked(def.purchase.slotId)) {
+        pendingNodeDefs.push(def)
+      } else {
+        const n = new ResourceNode(this, def.x, def.y, def.type as ResourceNodeType)
+        this.nodes.push(n)
+        zoneNodes.push(n)
+      }
     }
 
-    const zoneCounters: ShopCounter[] = []
+    for (const def of zone.stations) {
+      if (def.purchase && !EconomySystem.isSlotUnlocked(def.purchase.slotId)) {
+        pendingStationDefs.push(def)
+      } else {
+        const s = new ProcessingStation(this, def.x, def.y, def.recipeId)
+        this.stations.push(s)
+        zoneStations.push(s)
+      }
+    }
+
     for (const def of zone.counters) {
       const counter = new ShopCounter(this, def.x, def.y, def.itemType, def.price)
       this.counters.push(counter)
       zoneCounters.push(counter)
     }
 
+    // Now that initial entities are in place, build the planner so its
+    // producer maps and zone-center calculation see a populated world.
+    const worker = new WorkerAI(this, zoneNodes, zoneStations, zoneCounters)
+    this.workerAIs.push(worker)
+
+    // Spawn deferred purchase-slot markers (closures register their entity
+    // into `worker` when bought).
+    for (const def of pendingNodeDefs)    this._spawnPurchaseSlotForNode(def, zone.id, worker, zoneNodes)
+    for (const def of pendingStationDefs) this._spawnPurchaseSlotForStation(def, zone.id, worker, zoneStations)
+
     const register = new CashRegister(this, zone.cashRegisterPos.x, zone.cashRegisterPos.y)
     this.registers.push(register)
+
+    // A cashier is "anyone standing near the register" — the player OR any
+    // of this zone's workers. The closure is evaluated every frame by the
+    // register so freshly-spawned workers are picked up automatically.
+    register.setCashierCandidates(() => {
+      const list: { x: number; y: number }[] = [this.player]
+      for (const w of worker.workerList) list.push(w)
+      return list
+    })
 
     if (zone.upgradeBoardPos) {
       this.upgradeBoards.push(
         new UpgradeBoard(this, zone.upgradeBoardPos.x, zone.upgradeBoardPos.y),
       )
     }
-
-    // Always create a planner per zone — it stays dormant until a `worker_N`
-    // upgrade fires, then spawns + manages workers in this zone.
-    this.workerAIs.push(new WorkerAI(this, zoneNodes, zoneStations, zoneCounters))
 
     this.customerSystems.push(new CustomerSystem(
       this,
@@ -226,6 +284,74 @@ export class Game extends Phaser.Scene {
       this, zone.unlockPortalPos.x, zone.unlockPortalPos.y, zone.id, zone.unlockCost,
     )
     this.unlockPortals.push(portal)
+  }
+
+  // ── Purchase slots (in-world "buy extra palm / press / …") ──────────────
+
+  private _spawnPurchaseSlotForNode(
+    def:      NodeSpawnDef,
+    zoneId:   string,
+    worker:   WorkerAI,
+    zoneArr:  ResourceNode[],
+  ): void {
+    if (!def.purchase) return
+    const { slotId, cost } = def.purchase
+    const hint = def.type.replace(/_/g, ' ').toUpperCase()
+    const slot = new PurchaseSlot(this, def.x, def.y, slotId, cost, hint)
+    this.purchaseSlots.push(slot)
+
+    this.pendingSlots.set(slotId, {
+      slot,
+      build: () => {
+        const n = new ResourceNode(this, def.x, def.y, def.type as ResourceNodeType)
+        this.nodes.push(n)
+        zoneArr.push(n)
+        worker.registerNode(n)
+        // Small pop-in
+        n.setScale(0.2)
+        this.tweens.add({ targets: n, scaleX: 1, scaleY: 1, duration: 260, ease: 'Back.Out' })
+      },
+    })
+    void zoneId
+  }
+
+  private _spawnPurchaseSlotForStation(
+    def:      StationSpawnDef,
+    zoneId:   string,
+    worker:   WorkerAI,
+    zoneArr:  ProcessingStation[],
+  ): void {
+    if (!def.purchase) return
+    const { slotId, cost } = def.purchase
+    const recipe = RECIPE_BY_ID[def.recipeId]
+    const hint   = recipe ? (ITEMS[recipe.output]?.label ?? def.recipeId).toUpperCase() : def.recipeId
+    const slot   = new PurchaseSlot(this, def.x, def.y, slotId, cost, hint)
+    this.purchaseSlots.push(slot)
+
+    this.pendingSlots.set(slotId, {
+      slot,
+      build: () => {
+        const s = new ProcessingStation(this, def.x, def.y, def.recipeId)
+        this.stations.push(s)
+        zoneArr.push(s)
+        worker.registerStation(s)
+        s.setScale(0.2)
+        this.tweens.add({ targets: s, scaleX: 1, scaleY: 1, duration: 260, ease: 'Back.Out' })
+      },
+    })
+    void zoneId
+  }
+
+  private _onSlotPurchased(slotId: string): void {
+    const pending = this.pendingSlots.get(slotId)
+    if (!pending) return
+    this.pendingSlots.delete(slotId)
+
+    // PurchaseSlot handles its own destroy-tween; we just drop the ref.
+    const idx = this.purchaseSlots.indexOf(pending.slot)
+    if (idx >= 0) this.purchaseSlots.splice(idx, 1)
+
+    pending.build()
   }
 
   /**

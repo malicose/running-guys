@@ -1,7 +1,7 @@
 import { EventBus } from './EventBus'
 
 const STORAGE_KEY = 'stackandsell.save'
-const SAVE_VERSION = 2
+const SAVE_VERSION = 3
 const DEBOUNCE_MS  = 500
 
 /**
@@ -23,9 +23,15 @@ export interface SaveState {
   balance:       number
   purchased:     string[]
   unlockedZones: string[]
+  unlockedSlots: string[]
 }
 
-type GetStateFn = () => { balance: number; purchased: string[]; unlockedZones: string[] }
+type GetStateFn = () => {
+  balance:       number
+  purchased:     string[]
+  unlockedZones: string[]
+  unlockedSlots: string[]
+}
 
 class SaveSystemClass {
   private listenerAttached = false
@@ -57,8 +63,8 @@ class SaveSystemClass {
       if (!parsed) return null
       if (typeof parsed.balance !== 'number') return null
       if (!Array.isArray(parsed.purchased)) return null
-      // Migrate v1 → v2: v1 had no unlockedZones; treat as empty.
-      if (parsed.version !== SAVE_VERSION && parsed.version !== 1) return null
+      // Migrate v1/v2 → v3: older saves had no unlockedZones/unlockedSlots; treat as empty.
+      if (parsed.version !== SAVE_VERSION && parsed.version !== 2 && parsed.version !== 1) return null
 
       return {
         version:       SAVE_VERSION,
@@ -66,6 +72,9 @@ class SaveSystemClass {
         purchased:     parsed.purchased.filter((x): x is string => typeof x === 'string'),
         unlockedZones: Array.isArray(parsed.unlockedZones)
           ? parsed.unlockedZones.filter((x): x is string => typeof x === 'string')
+          : [],
+        unlockedSlots: Array.isArray(parsed.unlockedSlots)
+          ? parsed.unlockedSlots.filter((x): x is string => typeof x === 'string')
           : [],
       }
     } catch (err) {
@@ -106,12 +115,13 @@ class SaveSystemClass {
   private _writeToStorage(): void {
     if (!this.getStateFn || !this._storageAvailable()) return
 
-    const { balance, purchased, unlockedZones } = this.getStateFn()
+    const { balance, purchased, unlockedZones, unlockedSlots } = this.getStateFn()
     const payload: SaveState = {
       version:       SAVE_VERSION,
       balance,
       purchased:     [...purchased],
       unlockedZones: [...unlockedZones],
+      unlockedSlots: [...unlockedSlots],
     }
 
     try {

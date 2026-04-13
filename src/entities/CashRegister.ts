@@ -2,8 +2,12 @@ import Phaser from 'phaser'
 import { BALANCE } from '../config/balance'
 import { EventBus } from '../systems/EventBus'
 import type { Player } from './Player'
+import type { Customer } from './Customer'
 
 const COIN_COUNT = 8   // coins spawned per collection
+
+/** Anything that can act as a cashier — player or worker, both have (x, y). */
+export interface CashierCandidate { x: number; y: number }
 
 /**
  * CashRegister — money accumulates here as customers pay.
@@ -15,11 +19,24 @@ export class CashRegister extends Phaser.GameObjects.Container {
   private pendingMoney = 0
   private collectCd    = 0   // brief cooldown after collection
 
+  /** Ordered queue of customers at this register — head (index 0) is being served. */
+  private queue: Customer[] = []
+
+  /**
+   * Callback that returns the current list of things that can act as a
+   * cashier (player + any workers in the zone). Checked every frame against
+   * CASHIER_RADIUS to decide whether head-of-queue customers may pay.
+   */
+  private cashierCandidates: () => CashierCandidate[] = () => []
+
+  private _hasCashier = false
+
   // Visuals
   private shadowObj!:   Phaser.GameObjects.Ellipse
   private boxGfx!:      Phaser.GameObjects.Graphics
   private moneyLabel!:  Phaser.GameObjects.Text
   private coinBag!:     Phaser.GameObjects.Arc     // pulsing bag icon
+  private cashierIcon!: Phaser.GameObjects.Text    // green ✔ / red ✖ above register
 
   // ── Construction ──────────────────────────────────────────────────────────
 
@@ -27,6 +44,44 @@ export class CashRegister extends Phaser.GameObjects.Container {
     super(scene, x, y)
     this._buildVisual()
     scene.add.existing(this)
+  }
+
+  // ── Cashier wiring ────────────────────────────────────────────────────────
+
+  /** Called by Game after the zone is built so the register can see its
+   *  player + zone workers. The callback is re-evaluated each frame so new
+   *  workers spawned by upgrades are picked up automatically. */
+  setCashierCandidates(fn: () => CashierCandidate[]): void {
+    this.cashierCandidates = fn
+  }
+
+  /** True if any cashier candidate is within CASHIER_RADIUS of the register. */
+  get hasCashier(): boolean { return this._hasCashier }
+
+  // ── Queue API (used by Customer) ─────────────────────────────────────────
+
+  get queueLength(): number { return this.queue.length }
+
+  joinQueue(c: Customer): number {
+    const idx = this.queue.indexOf(c)
+    if (idx !== -1) return idx
+    this.queue.push(c)
+    return this.queue.length - 1
+  }
+
+  leaveQueue(c: Customer): void {
+    const idx = this.queue.indexOf(c)
+    if (idx !== -1) this.queue.splice(idx, 1)
+  }
+
+  indexOfInQueue(c: Customer): number { return this.queue.indexOf(c) }
+
+  getQueueSlotPos(index: number): { x: number; y: number } {
+    const clamped = Math.min(index, BALANCE.REGISTER_QUEUE_CAP_SLOTS - 1)
+    return {
+      x: this.x,
+      y: this.y + BALANCE.QUEUE_FRONT_OFFSET + clamped * BALANCE.QUEUE_SLOT_SPACING,
+    }
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -48,6 +103,16 @@ export class CashRegister extends Phaser.GameObjects.Container {
   tick(delta: number, player: Player): void {
     const dt = delta / 1000
     this.collectCd = Math.max(0, this.collectCd - dt)
+
+    // Cashier presence check — any candidate within CASHIER_RADIUS counts.
+    this._hasCashier = false
+    const candidates = this.cashierCandidates()
+    for (const cand of candidates) {
+      const d = Phaser.Math.Distance.Between(this.x, this.y, cand.x, cand.y)
+      if (d < BALANCE.CASHIER_RADIUS) { this._hasCashier = true; break }
+    }
+    this.cashierIcon.setText(this._hasCashier ? '✓' : '✗')
+    this.cashierIcon.setColor(this._hasCashier ? '#a5d6a7' : '#ef9a9a')
 
     if (this.pendingMoney > 0 && this.collectCd === 0) {
       const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y)
@@ -158,6 +223,14 @@ export class CashRegister extends Phaser.GameObjects.Container {
     )
     this.moneyLabel.setOrigin(0.5)
     this.add(this.moneyLabel)
+
+    // Cashier indicator — small ✓/✗ next to the coin bag
+    this.cashierIcon = new Phaser.GameObjects.Text(
+      this.scene, 16, -18, '✗',
+      { fontSize: '12px', fontStyle: 'bold', color: '#ef9a9a' } as Phaser.Types.GameObjects.Text.TextStyle,
+    )
+    this.cashierIcon.setOrigin(0.5)
+    this.add(this.cashierIcon)
 
     // "REGISTER" label
     const reg = new Phaser.GameObjects.Text(

@@ -22,14 +22,39 @@ class EconomySystemClass {
   private _balance = 0
   private _purchased = new Set<string>()
   private _unlockedZones = new Set<string>()
+  private _unlockedSlots = new Set<string>()
   private _player: Player | null = null
   private _listenerAttached = false
 
   get balance(): number { return this._balance }
   get purchased(): ReadonlySet<string> { return this._purchased }
   get unlockedZones(): ReadonlySet<string> { return this._unlockedZones }
+  get unlockedSlots(): ReadonlySet<string> { return this._unlockedSlots }
 
   isZoneUnlocked(zoneId: string): boolean { return this._unlockedZones.has(zoneId) }
+  isSlotUnlocked(slotId: string): boolean { return this._unlockedSlots.has(slotId) }
+
+  /**
+   * Attempt to purchase an in-world entity slot (extra palm, extra press, …).
+   * Returns true on success. Fires `slot:purchased` so the Game scene can
+   * materialize the real entity in place of the PurchaseSlot marker.
+   */
+  tryPurchaseSlot(slotId: string, cost: number): boolean {
+    if (this._unlockedSlots.has(slotId)) return false
+    if (this._balance < cost) return false
+
+    this._balance -= cost
+    this._unlockedSlots.add(slotId)
+
+    EventBus.emit('slot:purchased',  { slotId })
+    EventBus.emit('economy:changed', { balance: this._balance })
+    return true
+  }
+
+  /** Restore a slot unlock without paying — used during save restore. */
+  forceUnlockSlot(slotId: string): void {
+    this._unlockedSlots.add(slotId)
+  }
 
   /**
    * Attempt to unlock a zone for `cost`. Returns true on success. Deducts
@@ -79,8 +104,19 @@ class EconomySystemClass {
    * that WorkerAI is already listening for `upgrade:applied` events and can
    * respawn workers that were unlocked in the previous session.
    */
-  loadFromSave(state: { balance: number; purchased: string[]; unlockedZones: string[] }): void {
+  loadFromSave(state: {
+    balance:       number
+    purchased:     string[]
+    unlockedZones: string[]
+    unlockedSlots: string[]
+  }): void {
     this._balance = state.balance
+
+    // Restore slot unlocks silently — Game._buildZone reads the set on build
+    // and skips spawning the PurchaseSlot marker for already-bought slots.
+    for (const slotId of state.unlockedSlots) {
+      this.forceUnlockSlot(slotId)
+    }
 
     // Restore unlocked zones first so the Game scene can build them before
     // upgrade re-emits trigger WorkerAI spawns inside those zones.
@@ -115,6 +151,7 @@ class EconomySystemClass {
     this._balance = 0
     this._purchased.clear()
     this._unlockedZones.clear()
+    this._unlockedSlots.clear()
     this._player = null
     // NOTE: do NOT flip _listenerAttached. The `money:collected` handler
     // closes over `this` (the singleton), and `this._balance` was just
