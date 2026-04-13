@@ -14,4 +14,7 @@ export const ITEMS: Record<string, ItemDef> = {
   pineapple:        { label: 'Pineapple',          color: 0xffd54f, stackable: true },
   pineapple_juice:  { label: 'Pineapple Juice',    color: 0xffeb3b, stackable: true },
   cocktail:         { label: 'Cocktail',           color: 0xff4081, stackable: true },
+  mango:            { label: 'Mango',              color: 0xff8f00, stackable: true },
+  mango_juice:      { label: 'Mango Juice',        color: 0xffca28, stackable: true },
+  smoothie:         { label: 'Smoothie',           color: 0xe91e63, stackable: true },
 }

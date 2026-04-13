@@ -64,6 +64,26 @@ export const ZONES: ZoneDef[] = [
     customerSpawnPos: { x: 1320, y: 900 },
     unlockPortalPos:  { x: 970, y: 500 },
   },
+  {
+    id: 'tropical_smoothie_bar',
+    unlockCost: 1200,
+    nodes: [
+      { type: 'mango_tree', x: 1530, y: 200 },
+      { type: 'mango_tree', x: 1650, y: 200, purchase: { slotId: 'smoothie_bar.mango_2', cost: 600 } },
+    ],
+    stations: [
+      { recipeId: 'mango_press',      x: 1530, y: 360 },
+      { recipeId: 'smoothie_station', x: 1590, y: 520 },
+      { recipeId: 'mango_press',      x: 1700, y: 360, purchase: { slotId: 'smoothie_bar.press_2', cost: 700 } },
+    ],
+    counters: [
+      { itemType: 'mango_juice', price: 14, x: 1490, y: 700 },
+      { itemType: 'smoothie',    price: 40, x: 1680, y: 700 },
+    ],
+    cashRegisterPos:  { x: 1590, y: 860 },
+    customerSpawnPos: { x: 1800, y: 950 },
+    unlockPortalPos:  { x: 1320, y: 500 },
+  },
 ]
 
 /** Convenience lookup by id */

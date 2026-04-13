@@ -31,7 +31,16 @@ export class Worker extends Phaser.GameObjects.Container {
   speed    = 70
   maxStack = MINI_STACK_MAX
 
+  /**
+   * When set, this worker is a stationary cashier: it walks to this world
+   * position and stays there indefinitely, ignoring the planner. It still
+   * appears in `workerList` so it counts as a cashier candidate for the
+   * CashRegister proximity check.
+   */
+  stationaryTarget: { x: number; y: number } | null = null
+
   private ai:           WorkerAI
+  private isCashier:    boolean
   private macroState:   MacroState = 'idle'
   private task:         WorkerTask | null = null
   private actionTimer   = 0
@@ -50,9 +59,10 @@ export class Worker extends Phaser.GameObjects.Container {
   private legR!:       Phaser.GameObjects.Ellipse
   private walkPhase   = 0
 
-  constructor(scene: Phaser.Scene, x: number, y: number, ai: WorkerAI) {
+  constructor(scene: Phaser.Scene, x: number, y: number, ai: WorkerAI, isCashier = false) {
     super(scene, x, y)
     this.ai = ai
+    this.isCashier = isCashier
 
     this._buildVisual()
     scene.add.existing(this)
@@ -77,6 +87,13 @@ export class Worker extends Phaser.GameObjects.Container {
   tick(delta: number): void {
     const dt = delta / 1000
     this.actionTimer = Math.max(0, this.actionTimer - dt)
+
+    // Cashier mode: walk to post and stay there — no planner involvement.
+    if (this.stationaryTarget) {
+      this._stepToward(this.stationaryTarget.x, this.stationaryTarget.y, dt, 0.8)
+      this._syncVisual()
+      return
+    }
 
     if (this.macroState === 'idle') this._tickIdle(dt)
     if (this.macroState === 'moving') this._tickMoving(dt)
@@ -287,15 +304,27 @@ export class Worker extends Phaser.GameObjects.Container {
     this.legR.setPosition( 4, 12)
 
     // Torso with sun-lit top + shaded right
+    // Cashier workers wear a white apron; regular workers wear a teal uniform.
     const torso = new Phaser.GameObjects.Graphics(this.scene)
-    torso.fillStyle(0x004d40)                          // shaded side
-    torso.fillRoundedRect(-7, 4, 18, 10, 3)
-    torso.fillStyle(0x00796b)                          // front
-    torso.fillRoundedRect(-9, 4, 16, 10, 3)
-    torso.fillStyle(0x26a69a)                          // top face
-    torso.fillEllipse(0, 4, 22, 12)
-    torso.fillStyle(0x80cbc4, 0.8)                     // top-left highlight
-    torso.fillEllipse(-5, 2, 10, 5)
+    if (this.isCashier) {
+      torso.fillStyle(0xbdbdbd)                        // shaded side (grey)
+      torso.fillRoundedRect(-7, 4, 18, 10, 3)
+      torso.fillStyle(0xeeeeee)                        // front (white apron)
+      torso.fillRoundedRect(-9, 4, 16, 10, 3)
+      torso.fillStyle(0xfafafa)                        // top face
+      torso.fillEllipse(0, 4, 22, 12)
+      torso.fillStyle(0xffffff, 0.9)                   // top-left highlight
+      torso.fillEllipse(-5, 2, 10, 5)
+    } else {
+      torso.fillStyle(0x004d40)                        // shaded side
+      torso.fillRoundedRect(-7, 4, 18, 10, 3)
+      torso.fillStyle(0x00796b)                        // front
+      torso.fillRoundedRect(-9, 4, 16, 10, 3)
+      torso.fillStyle(0x26a69a)                        // top face
+      torso.fillEllipse(0, 4, 22, 12)
+      torso.fillStyle(0x80cbc4, 0.8)                   // top-left highlight
+      torso.fillEllipse(-5, 2, 10, 5)
+    }
     this.add(torso)
 
     // Head
@@ -336,7 +365,7 @@ export class Worker extends Phaser.GameObjects.Container {
     this.setDepth(this.y)
     this.shadowObj.setPosition(this.x + 1, this.y + 12).setDepth(this.y - 1)
     this.shadowSoft.setPosition(this.x + 2, this.y + 13).setDepth(this.y - 2)
-    this.stateLabel.setText(this.task?.kind ?? this.macroState)
+    this.stateLabel.setText(this.stationaryTarget ? 'cashier' : (this.task?.kind ?? this.macroState))
     this._positionStackSprites()
   }
 }

@@ -67,7 +67,7 @@ export interface ZoneDef {
 // ─── Upgrade ─────────────────────────────────────────────────────────────────
 
 export type UpgradeTarget = 'player' | 'worker'
-export type UpgradeStat = 'maxStack' | 'speed' | 'unlock'
+export type UpgradeStat = 'maxStack' | 'speed' | 'unlock' | 'cashier'
 
 export interface UpgradeDef {
   id: string
@@ -127,3 +127,4 @@ export type ResourceNodeType =
   | 'fishing_spot'
   | 'sugarcane_field'
   | 'pineapple_bush'
+  | 'mango_tree'

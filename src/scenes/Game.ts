@@ -80,7 +80,7 @@ export class Game extends Phaser.Scene {
     this.pendingSlots    = new Map()
     this.joystickLinked  = false
 
-    const W = 1400, H = 1000
+    const W = 1900, H = 1000
     this.physics.world.setBounds(0, 0, W, H)
     this._buildBackground(W, H)
 
@@ -244,6 +244,10 @@ export class Game extends Phaser.Scene {
 
     const register = new CashRegister(this, zone.cashRegisterPos.x, zone.cashRegisterPos.y)
     this.registers.push(register)
+
+    // Tell the planner where the register is so it can post a cashier worker
+    // next to it when the cashier_1 upgrade is purchased.
+    worker.setRegisterPos(register.x, register.y)
 
     // A cashier is "anyone standing near the register" — the player OR any
     // of this zone's workers. The closure is evaluated every frame by the

@@ -1,89 +1,134 @@
 import Phaser from 'phaser'
 
 /**
- * Virtual joystick wrapper around Rex VirtualJoystick Plugin.
+ * Custom floating virtual joystick — no Rex dependency.
  *
- * Lives in the UI scene (separate camera, never scrolls) so it always
- * appears fixed in the bottom-left regardless of the game camera.
+ * Touch anywhere in the left 40 % of the screen to activate.
+ * The base snaps to the touch point; the thumb follows the finger
+ * and is clamped within `radius` pixels of the base.
  *
- * Touch zone: an invisible rectangle covering the left 40 % of the screen.
- * Touching anywhere in that zone activates the joystick and repositions
- * the base to the touch point (dynamic / "floating" joystick).
+ * Output (x, y) is always in [-1, 1] — magnitude matches keyboard
+ * (partial deflection gives < 1, full deflection gives 1).
  */
 export class Joystick {
-  private stick: any   // Rex VirtualJoystick instance
+  private scene: Phaser.Scene
+  private baseGfx: Phaser.GameObjects.Arc
+  private thumbGfx: Phaser.GameObjects.Arc
 
-  // Normalised direction cached each frame by Rex
-  get x(): number {
-    const f: number = this.stick.force as number
-    return f > 0 ? (this.stick.forceX as number) / (this.stick.radius as number) : 0
-  }
+  private readonly radius = 58
+  private readonly deadZone = 6   // pixels — below this = no input
 
-  get y(): number {
-    const f: number = this.stick.force as number
-    return f > 0 ? (this.stick.forceY as number) / (this.stick.radius as number) : 0
-  }
+  private centerX = 0
+  private centerY = 0
+  private _dx = 0
+  private _dy = 0
+  private _active = false
+  private activePointerId = -1
 
-  get active(): boolean {
-    return (this.stick.force as number) > 0
-  }
+  private readonly DEFAULT_X: number
+  private readonly DEFAULT_Y: number
+
+  get x(): number  { return this._dx }
+  get y(): number  { return this._dy }
+  get active(): boolean { return this._active }
 
   constructor(scene: Phaser.Scene) {
+    this.scene = scene
     const { width, height } = scene.scale
 
-    // ── Visual parts (created in UI scene — fixed camera, no scrollFactor needed)
-    const base = scene.add
-      .circle(0, 0, 58, 0xffffff, 0.10)
+    this.DEFAULT_X = 110
+    this.DEFAULT_Y = height - 140
+
+    // ── Visuals ──────────────────────────────────────────────────────────────
+    this.baseGfx = scene.add
+      .circle(this.DEFAULT_X, this.DEFAULT_Y, this.radius, 0xffffff, 0.10)
       .setStrokeStyle(2, 0xffffff, 0.25)
+      .setScrollFactor(0)
+      .setDepth(1000)
 
-    const thumb = scene.add
-      .circle(0, 0, 26, 0xffffff, 0.45)
+    this.thumbGfx = scene.add
+      .circle(this.DEFAULT_X, this.DEFAULT_Y, 26, 0xffffff, 0.45)
       .setStrokeStyle(2, 0xffffff, 0.6)
+      .setScrollFactor(0)
+      .setDepth(1001)
 
-    // Default resting position
-    const DEFAULT_X = 110
-    const DEFAULT_Y = height - 140
-
-    // ── Rex joystick
-    const plugin = scene.plugins.get('rexVirtualJoystick') as any
-    this.stick = plugin.add(scene, {
-      x:        DEFAULT_X,
-      y:        DEFAULT_Y,
-      radius:   58,
-      base,
-      thumb,
-      dir:      '8dir',
-      forceMin: 10,
-      enable:   true,
-    })
-
-    // ── Expand touch zone to left 40 % of screen
-    // An invisible interactive rectangle; on pointerdown we move the joystick
-    // base to the touch position before Rex picks it up.
+    // ── Touch zone — invisible rect covering left 40 % ────────────────────
     const zone = scene.add
       .rectangle(0, 0, width * 0.4, height, 0xffffff, 0)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(999)
       .setInteractive()
 
-    scene.input.on(
-      'pointerdown',
-      (pointer: Phaser.Input.Pointer) => {
-        if (pointer.x < width * 0.4) {
-          this.stick.setPosition(pointer.x, pointer.y)
-        }
-      },
-    )
-
-    // Reset base to default position after the finger lifts
-    scene.input.on('pointerup', () => {
-      scene.time.delayedCall(120, () => {
-        this.stick.setPosition(DEFAULT_X, DEFAULT_Y)
-      })
+    zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.activePointerId === -1) {
+        this._activate(pointer.x, pointer.y, pointer.id)
+      }
     })
 
-    // Suppress pointer events leaking to game scene via the zone
-    zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation()
+    // pointermove / pointerup fire on the scene (finger may slide outside zone)
+    scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.activePointerId) {
+        this._move(pointer.x, pointer.y)
+      }
+    })
+
+    scene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.activePointerId) {
+        this._deactivate()
+      }
+    })
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private _activate(px: number, py: number, id: number): void {
+    this.activePointerId = id
+    this.centerX = px
+    this.centerY = py
+    this._dx = 0
+    this._dy = 0
+    this._active = true
+    this.baseGfx.setPosition(px, py)
+    this.thumbGfx.setPosition(px, py)
+  }
+
+  private _move(px: number, py: number): void {
+    const dx   = px - this.centerX
+    const dy   = py - this.centerY
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    if (dist < this.deadZone) {
+      this._dx = 0
+      this._dy = 0
+      this.thumbGfx.setPosition(this.centerX, this.centerY)
+      return
+    }
+
+    // Normalised direction
+    const nx = dx / dist
+    const ny = dy / dist
+
+    // Clamp thumb within radius; scale output to [0, 1]
+    const clamped = Math.min(dist, this.radius)
+    this._dx = nx * (clamped / this.radius)
+    this._dy = ny * (clamped / this.radius)
+
+    this.thumbGfx.setPosition(
+      this.centerX + nx * clamped,
+      this.centerY + ny * clamped,
+    )
+  }
+
+  private _deactivate(): void {
+    this.activePointerId = -1
+    this._active = false
+    this._dx = 0
+    this._dy = 0
+
+    this.thumbGfx.setPosition(this.DEFAULT_X, this.DEFAULT_Y)
+    this.scene.time.delayedCall(120, () => {
+      this.baseGfx.setPosition(this.DEFAULT_X, this.DEFAULT_Y)
     })
   }
 }

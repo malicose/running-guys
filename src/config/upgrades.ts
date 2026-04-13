@@ -18,6 +18,9 @@ export const UPGRADES: UpgradeDef[] = [
   { id: 'worker_2', target: 'worker', stat: 'unlock',   value: 1,   cost: 1500, prerequisite: 'worker_1' },
   { id: 'worker_3', target: 'worker', stat: 'unlock',   value: 1,   cost: 3500, prerequisite: 'worker_2' },
 
+  // ── Cashier worker (stationary NPC that stays at the register) ──────────
+  { id: 'cashier_1', target: 'worker', stat: 'cashier', value: 1, cost: 800, prerequisite: 'worker_1' },
+
   // ── Worker stat upgrades (apply to all current + future workers) ────────
   { id: 'worker_speed_1', target: 'worker', stat: 'speed',    value: 110, cost: 600,  prerequisite: 'worker_1' },
   { id: 'worker_speed_2', target: 'worker', stat: 'speed',    value: 160, cost: 1800, prerequisite: 'worker_speed_1' },

@@ -1,6 +1,4 @@
 import Phaser from 'phaser'
-// @ts-ignore — no bundled types for plugin sub-path
-import VirtualJoystickPlugin from 'phaser3-rex-plugins/plugins/virtualjoystick-plugin.js'
 import { Boot } from './scenes/Boot'
 import { Game } from './scenes/Game'
 import { UI } from './scenes/UI'
@@ -15,6 +13,10 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 854,
   backgroundColor: '#1565c0',
   parent: 'game',
+
+  input: {
+    activePointers: 3,   // multi-touch: joystick + tap elsewhere
+  },
 
   physics: {
     default: 'arcade',
@@ -32,16 +34,6 @@ const config: Phaser.Types.Core.GameConfig = {
   render: {
     antialias: true,
     pixelArt: false,
-  },
-
-  plugins: {
-    global: [
-      {
-        key: 'rexVirtualJoystick',
-        plugin: VirtualJoystickPlugin,
-        start: true,
-      },
-    ],
   },
 
   // Boot → Game (world) + UI (HUD, joystick)

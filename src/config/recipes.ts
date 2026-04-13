@@ -9,6 +9,8 @@ export const RECIPES: RecipeDef[] = [
   { id: 'sugar_mill',       input: ['sugarcane'],                output: 'sugar',           time: 1.2 },
   { id: 'juice_press',      input: ['pineapple'],                output: 'pineapple_juice', time: 1.2 },
   { id: 'cocktail_station', input: ['coconut_milk', 'sugar'],    output: 'cocktail',        time: 3.0 },
+  { id: 'mango_press',      input: ['mango'],                   output: 'mango_juice',     time: 1.4 },
+  { id: 'smoothie_station', input: ['mango_juice', 'pineapple_juice'], output: 'smoothie', time: 3.5 },
 ]
 
 /** Convenience lookup by id */

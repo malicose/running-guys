@@ -55,6 +55,10 @@ export class WorkerAI {
   private centerX: number
   private centerY: number
 
+  /** Position of this zone's register, set after construction. Used to
+   *  station a cashier worker nearby when cashier_1 is purchased. */
+  private registerPos: { x: number; y: number } | null = null
+
   // Latest upgraded worker stats — applied to live workers when an upgrade
   // event arrives, and used as the spawn defaults so a worker bought after
   // its stat upgrades inherits the upgraded values.
@@ -67,6 +71,9 @@ export class WorkerAI {
     switch (p.stat) {
       case 'unlock':
         this._spawnWorker()
+        break
+      case 'cashier':
+        this._spawnCashierWorker()
         break
       case 'speed':
         this.workerSpeed = p.value
@@ -245,12 +252,31 @@ export class WorkerAI {
     return c.stockCount / BALANCE.COUNTER_MAX_STOCK
   }
 
+  // ── Register wiring ───────────────────────────────────────────────────────
+
+  /** Called by Game._buildZone after the CashRegister is constructed so the
+   *  planner knows where to post a cashier worker. */
+  setRegisterPos(x: number, y: number): void {
+    this.registerPos = { x, y }
+  }
+
   // ── Private — spawn ───────────────────────────────────────────────────────
 
   private _spawnWorker(): void {
     const w = new Worker(this.scene, this.centerX - 30, this.centerY + 20, this)
     if (this.workerSpeed    !== null) w.speed    = this.workerSpeed
     if (this.workerMaxStack !== null) w.maxStack = this.workerMaxStack
+    this.workers.push(w)
+  }
+
+  private _spawnCashierWorker(): void {
+    if (!this.registerPos) return
+    // Stand 40px to the right of the register so it's within CASHIER_RADIUS
+    // but not obscuring the coin bag.
+    const postX = this.registerPos.x + 40
+    const postY = this.registerPos.y
+    const w = new Worker(this.scene, postX, postY, this, true)
+    w.stationaryTarget = { x: postX, y: postY }
     this.workers.push(w)
   }
 }

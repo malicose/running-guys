@@ -11,6 +11,7 @@ const NODE_YIELDS: Record<ResourceNodeType, ItemId> = {
   fishing_spot:    'fish',
   sugarcane_field: 'sugarcane',
   pineapple_bush:  'pineapple',
+  mango_tree:      'mango',
 }
 
 /**
@@ -58,7 +59,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     // Idle sway for tree-like nodes (palm + pineapple bush — they have a
     // canopy that should react to wind). Sugarcane and fishing spot are
     // ground-bound and stay still.
-    if (type === 'palm_tree' || type === 'pineapple_bush') {
+    if (type === 'palm_tree' || type === 'pineapple_bush' || type === 'mango_tree') {
       const period = 3200 + Math.random() * 1200
       const phase  = Math.random() * 1500
       scene.tweens.add({
@@ -166,6 +167,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
       case 'fishing_spot':    this._drawFishingSpotFull(); return
       case 'sugarcane_field': this._drawSugarcaneFull(); return
       case 'pineapple_bush':  this._drawPineappleBushFull(); return
+      case 'mango_tree':      this._drawMangoTreeFull(); return
       case 'palm_tree':
       default:                this._drawPalmFull(); return
     }
@@ -177,6 +179,7 @@ export class ResourceNode extends Phaser.GameObjects.Container {
       case 'fishing_spot':    this._drawFishingSpotDepleted(); return
       case 'sugarcane_field': this._drawSugarcaneDepleted(); return
       case 'pineapple_bush':  this._drawPineappleBushDepleted(); return
+      case 'mango_tree':      this._drawMangoTreeDepleted(); return
       case 'palm_tree':
       default:                this._drawPalmDepleted(); return
     }
@@ -443,6 +446,83 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     g.fillStyle(0x795548)
     g.fillEllipse(-7, 12, 6, 4)
     g.fillEllipse( 8, 12, 6, 4)
+  }
+
+  /** Mango tree — short rounded canopy, orange fruits clustered in the crown */
+  private _drawMangoTreeFull(): void {
+    const g = this.treeGfx
+    g.clear()
+
+    // Trunk side-shadow
+    g.fillStyle(0x4e2c10, 0.7)
+    g.fillRect(2, -10, 8, 36)
+
+    // Trunk body — shorter and stouter than palm
+    g.fillStyle(0x795548)
+    g.fillRect(-5, -10, 9, 36)
+
+    // Trunk left highlight
+    g.fillStyle(0xa1887f, 0.9)
+    g.fillRect(-4, -10, 2, 36)
+
+    // Trunk segments
+    g.fillStyle(0x4e2c10, 0.45)
+    for (let i = 0; i < 3; i++) {
+      g.fillRect(-5, -6 + i * 10, 9, 1.5)
+    }
+
+    // Canopy back layer (darker, wider)
+    g.fillStyle(0x1b5e20, 0.75)
+    g.fillCircle(-10, -22, 22)
+    g.fillCircle( 10, -22, 22)
+    g.fillCircle(  0, -28, 22)
+
+    // Canopy mid layer
+    g.fillStyle(0x388e3c)
+    g.fillCircle(-8,  -20, 20)
+    g.fillCircle(  8, -20, 20)
+    g.fillCircle(  0, -26, 20)
+
+    // Canopy highlight layer
+    g.fillStyle(0x66bb6a, 0.9)
+    g.fillCircle(-6,  -24, 13)
+    g.fillCircle(  5, -24, 13)
+
+    // Mango fruits nestled under the canopy
+    // Fruit shadow
+    g.fillStyle(0xb36200, 0.7)
+    g.fillEllipse(-11, -10, 10, 14)
+    g.fillEllipse(  1, -8,  10, 14)
+    g.fillEllipse( 11, -11, 9,  12)
+
+    // Fruit bodies — orange with a reddish blush
+    g.fillStyle(0xff8f00)
+    g.fillEllipse(-12, -12, 10, 14)
+    g.fillEllipse(  0, -10, 10, 14)
+    g.fillEllipse( 10, -12, 9,  12)
+
+    g.fillStyle(0xe65100, 0.55)
+    g.fillEllipse(-10, -10, 5, 7)
+    g.fillEllipse(  2,  -8, 5, 7)
+    g.fillEllipse( 11, -10, 4, 6)
+  }
+
+  /** Mango tree depleted — bare canopy, no fruits */
+  private _drawMangoTreeDepleted(): void {
+    const g = this.treeGfx
+    g.clear()
+
+    // Pale trunk
+    g.fillStyle(0x9e9e9e)
+    g.fillRect(-5, -10, 9, 36)
+    g.fillStyle(0x757575)
+    g.fillEllipse(0, -10, 16, 7)
+
+    // Drooping faded canopy blobs
+    g.fillStyle(0x6d4c41, 0.55)
+    g.fillCircle(-8,  -18, 16)
+    g.fillCircle(  7, -18, 16)
+    g.fillCircle(  0, -22, 15)
   }
 
   /** Depleted fishing spot — murky water, no fish */

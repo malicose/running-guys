@@ -205,6 +205,83 @@ const drawers: Partial<Record<ItemId, Drawer>> = {
     g.fillRect(w * 0.3, -h * 1.1, 1.5, h * 0.7)
   },
 
+  mango: (g, s) => {
+    const w = s * 0.38
+    const h = s * 0.46
+    // Shadow side
+    g.fillStyle(0xc66200)
+    g.fillEllipse(1, 2, w * 2, h * 2.2)
+    // Body — slightly elongated orange-yellow oval
+    g.fillStyle(0xff8f00)
+    g.fillEllipse(0, 0, w * 2, h * 2.2)
+    // Highlight
+    g.fillStyle(0xffcc80, 0.85)
+    g.fillEllipse(-w * 0.3, -h * 0.3, w * 0.9, h * 0.7)
+    // Darker blush on the cheek (sun-facing side)
+    g.fillStyle(0xe65100, 0.5)
+    g.fillEllipse(w * 0.3, h * 0.2, w * 0.8, h * 0.8)
+    // Stem stub at the top
+    g.fillStyle(0x4e342e)
+    g.fillRect(-1.5, -h - 1, 3, 5)
+    // Tiny leaf
+    g.fillStyle(0x388e3c)
+    g.fillTriangle(-1, -h, -7, -h - 6, 2, -h - 2)
+  },
+
+  mango_juice: (g, s) => {
+    // Tall orange-yellow drink (same glass shape as pineapple_juice)
+    const w = s * 0.38
+    const h = s * 0.55
+    // Shadow side
+    g.fillStyle(0x9e9e9e, 0.6)
+    g.fillRoundedRect(-w + 1, -h + 1, w * 2, h * 2, 3)
+    // Glass
+    g.fillStyle(0xeceff1)
+    g.fillRoundedRect(-w, -h, w * 2, h * 2, 3)
+    // Juice — deep amber-orange
+    g.fillStyle(0xffa000)
+    g.fillRoundedRect(-w + 1.5, -h * 0.45, w * 2 - 3, h * 1.45, 2)
+    // Foam — lighter ring at top
+    g.fillStyle(0xffcc80)
+    g.fillEllipse(0, -h * 0.45, w * 1.6, 3)
+    // Highlight
+    g.fillStyle(0xffffff, 0.55)
+    g.fillRect(-w + 2, -h * 0.55, 1.5, h * 1.1)
+    // Straw
+    g.fillStyle(0x66bb6a)
+    g.fillRect(w * 0.3, -h * 1.1, 1.5, h * 0.7)
+  },
+
+  smoothie: (g, s) => {
+    // Wide rounded cup — pink smoothie with tiny fruit bits inside
+    const r = s * 0.5
+    // Cup shadow
+    g.fillStyle(0x9e9e9e, 0.6)
+    g.fillRoundedRect(-r + 1, -r * 0.8 + 1, r * 2, r * 1.8, 6)
+    // Cup body
+    g.fillStyle(0xfce4ec)
+    g.fillRoundedRect(-r, -r * 0.8, r * 2, r * 1.8, 6)
+    // Pink smoothie fill
+    g.fillStyle(0xe91e63)
+    g.fillRoundedRect(-r + 2, -r * 0.4, r * 2 - 4, r * 1.35, 4)
+    // Lighter foam at the surface
+    g.fillStyle(0xf48fb1, 0.9)
+    g.fillEllipse(0, -r * 0.4, r * 1.7, 5)
+    // Tiny fruit bits floating in the smoothie
+    g.fillStyle(0xffd54f)   // yellow mango chunk
+    g.fillCircle(-r * 0.3, r * 0.2, r * 0.13)
+    g.fillStyle(0xffeb3b)   // pineapple chunk
+    g.fillCircle( r * 0.25, r * 0.4, r * 0.11)
+    g.fillStyle(0xff8f00)   // deeper mango chunk
+    g.fillCircle(-r * 0.1,  r * 0.55, r * 0.1)
+    // Cup highlight
+    g.fillStyle(0xffffff, 0.5)
+    g.fillRect(-r + 3, -r * 0.55, 2, r * 1.3)
+    // Straw
+    g.fillStyle(0xce93d8)
+    g.fillRect(r * 0.35, -r * 1.3, 2, r * 0.95)
+  },
+
   cocktail: (g, s) => {
     // Martini glass with pink drink, olive, straw
     const r = s * 0.5

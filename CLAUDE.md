@@ -39,6 +39,10 @@ Sugar Cane     → Sugar        → Sugar Mill     → Sugar          ─┼─ 
 Fishing Spot   → Fish         → Grill          → Grilled Fish    │
 Pineapple Bush → Pineapple    → Juice Press    → Pineapple Juice ┘
 
+Mango Tree     → Mango        → Mango Press    → Mango Juice   ─┐
+                                                 Pineapple Juice ┘─ Smoothie Station → Smoothie → Counter
+  (pineapple_juice comes from cocktail_corner — cross-zone, player-only supply)
+
 Counter → Customers pick up → Cash Register → Player collects 💰
 ```
 
@@ -153,6 +157,9 @@ export const ITEMS: Record<string, ItemDef> = {
   pineapple:      { label: 'Pineapple',     color: 0xffd54f, stackable: true },
   pineapple_juice:{ label: 'Pineapple Juice',color: 0xffeb3b, stackable: true },
   cocktail:       { label: 'Cocktail',      color: 0xff4081, stackable: true },
+  mango:          { label: 'Mango',         color: 0xff8f00, stackable: true },
+  mango_juice:    { label: 'Mango Juice',   color: 0xffca28, stackable: true },
+  smoothie:       { label: 'Smoothie',      color: 0xe91e63, stackable: true },
   // add new item = add one entry here
 }
 ```
@@ -166,6 +173,8 @@ export const RECIPES: RecipeDef[] = [
   { id: 'sugar_mill',       input: ['sugarcane'],            output: 'sugar',           time: 1.2 },
   { id: 'juice_press',      input: ['pineapple'],            output: 'pineapple_juice', time: 1.2 },
   { id: 'cocktail_station', input: ['coconut_milk', 'sugar'],output: 'cocktail',        time: 3.0 },
+  { id: 'mango_press',      input: ['mango'],               output: 'mango_juice',     time: 1.4 },
+  { id: 'smoothie_station', input: ['mango_juice', 'pineapple_juice'], output: 'smoothie', time: 3.5 },
   // add new recipe = add one entry here
 ]
 ```
@@ -187,6 +196,13 @@ export const ZONES: ZoneDef[] = [
     nodes:    [{ type: 'sugarcane_field', ... }, { type: 'pineapple_bush', ... }],
     stations: [{ recipeId: 'sugar_mill', ... }, { recipeId: 'cocktail_station', ... }],
     counters: [{ itemType: 'cocktail', price: 30 }],
+  },
+  {
+    id: 'tropical_smoothie_bar',
+    unlockCost: 1200,
+    nodes:    [{ type: 'mango_tree', ... }],
+    stations: [{ recipeId: 'mango_press', ... }, { recipeId: 'smoothie_station', ... }],
+    counters: [{ itemType: 'mango_juice', price: 14 }, { itemType: 'smoothie', price: 40 }],
   },
   // new island zone = new entry here
 ]
@@ -626,7 +642,40 @@ worker automation and persistent saves.
    One drawer per item = a coconut looks like a coconut everywhere, not
    a beige box on the player and a brown circle on the tree.
 
-### Next: Phase 6+
+### Phase 6 — DONE ✅
+
+1. ✅ **Third zone — `tropical_smoothie_bar`** ($1200 unlock, portal at
+   x≈1320, y=500). Two mango trees (one purchasable at $600), two mango
+   presses (one purchasable at $700), a smoothie station, mango_juice
+   counter ($14) and smoothie counter ($40), cash register + customer spawn
+   on the far-right edge. World width expanded from **1400 → 1900 px**.
+
+**New content added:**
+- **Items**: `mango` (0xff8f00), `mango_juice` (0xffca28), `smoothie` (0xe91e63)
+- **Recipes**: `mango_press` (mango → mango_juice, 1.4 s),
+  `smoothie_station` (mango_juice + pineapple_juice → smoothie, 3.5 s)
+- **ResourceNodeType**: `'mango_tree'` — short stout trunk, three round
+  canopy layers (back/mid/highlight), three orange-with-blush mango fruits
+  nestled in the crown. Idle sway enabled. Depleted state: pale trunk +
+  faded brown canopy, no fruits.
+- **Item icons**: `mango` (orange oval + red blush + green leaf stem),
+  `mango_juice` (amber glass with green straw), `smoothie` (wide pink cup
+  with yellow fruit bits + purple straw).
+
+**Implementation notes:**
+- **Cross-zone recipe**: `smoothie_station` requires `pineapple_juice`
+  from `cocktail_corner`. Workers only plan within their zone so the
+  pineapple_juice slot must be filled by the player manually. This is
+  intentional — creates an interesting player-engagement loop.
+- **No SaveSystem changes needed**: zone/slot persistence was already
+  generic; `tropical_smoothie_bar` and its purchase slots are saved and
+  restored identically to prior zones.
+- **No WorkerAI changes needed**: `_buildZone()` constructs a planner
+  automatically for every zone; the new zone gets its own planner that
+  covers mango_tree → mango_press → mango_juice counter. It cannot
+  route across to cocktail_corner for pineapple_juice (intentional cap).
+
+### Next: Phase 7+
 
 Roadmap candidates, roughly in priority order:
 
@@ -635,13 +684,13 @@ Roadmap candidates, roughly in priority order:
    check already accepts any `{x,y}` so the mechanic is in place; just
    needs a new `Worker` subtype (or a `stationaryTarget` on the existing
    one) plus an `upgrades.ts` entry.
-2. **More zones** — third+ island zone behind a higher unlock cost. The
-   portal/planner/save pipeline already supports this; need content: 1–2
-   new items with icons in [itemIcons.ts](src/ui/itemIcons.ts), recipes
-   in [recipes.ts](src/config/recipes.ts), and a new entry in
-   [zones.ts](src/config/zones.ts).
-3. **Sound + polish** — background music, harvest/process/sell/coin SFX,
+2. **Sound + polish** — background music, harvest/process/sell/coin SFX,
    camera shakes on big events. Biggest game-feel win per hour of work.
-4. **Sprite-based art pass** — replace procedural `Graphics` visuals with
+3. **Sprite-based art pass** — replace procedural `Graphics` visuals with
    real sprite assets. Architecture is sprite-ready (entities encapsulate
    rendering) but procedural icons read well enough that this can wait.
+4. **More zones** — fourth+ island zone. The portal/planner/save pipeline
+   supports arbitrary zone count; need content: 1–2 new items with icons
+   in [itemIcons.ts](src/ui/itemIcons.ts), recipes in
+   [recipes.ts](src/config/recipes.ts), and a new entry in
+   [zones.ts](src/config/zones.ts).
