@@ -4,9 +4,18 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Tropical Island</title>
+
+    <!-- PWA manifest (injected by vite-plugin-pwa, but explicit for clarity) -->
+    <meta name="theme-color" content="#0c71a4" />
+
+    <!-- iOS PWA support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen" />
+    <meta name="apple-mobile-web-app-title" content="Tropical" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <style>
       *,
       *::before,
@@ -27,11 +36,12 @@
 
       canvas {
         display: block;
+        touch-action: none;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-BBw12bFo.js"></script>
+    <script type="module" crossorigin src="./assets/index-aX6CVbSK.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/phaser-0RJB29YE.js">
-  </head>
+  <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
   <body>
     <div id="game"></div>
   </body>

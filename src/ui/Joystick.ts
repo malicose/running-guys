@@ -3,7 +3,7 @@ import Phaser from 'phaser'
 /**
  * Custom floating virtual joystick — no Rex dependency.
  *
- * Touch anywhere in the left 40 % of the screen to activate.
+ * Touch anywhere in the right 40 % of the screen to activate.
  * The base snaps to the touch point; the thumb follows the finger
  * and is clamped within `radius` pixels of the base.
  *
@@ -36,7 +36,7 @@ export class Joystick {
     this.scene = scene
     const { width, height } = scene.scale
 
-    this.DEFAULT_X = 110
+    this.DEFAULT_X = width - 110
     this.DEFAULT_Y = height - 140
 
     // ── Visuals ──────────────────────────────────────────────────────────────
@@ -52,9 +52,9 @@ export class Joystick {
       .setScrollFactor(0)
       .setDepth(1001)
 
-    // ── Touch zone — invisible rect covering left 40 % ────────────────────
+    // ── Touch zone — invisible rect covering right 40 % ───────────────────
     const zone = scene.add
-      .rectangle(0, 0, width * 0.4, height, 0xffffff, 0)
+      .rectangle(width * 0.6, 0, width * 0.4, height, 0xffffff, 0)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(999)
