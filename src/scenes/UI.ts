@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { Joystick } from '../ui/Joystick'
 import { UpgradeMenu } from '../ui/UpgradeMenu'
+import { InfoPanel } from '../ui/InfoPanel'
 import { EventBus } from '../systems/EventBus'
 
 /**
@@ -18,6 +19,7 @@ export class UI extends Phaser.Scene {
 
   /** Kept as a field so the menu's event subscriptions stay alive for the scene lifetime. */
   private upgradeMenu!: UpgradeMenu
+  private infoPanel!:   InfoPanel
 
   constructor() {
     super({ key: 'UI' })
@@ -45,6 +47,9 @@ export class UI extends Phaser.Scene {
 
     // ── Upgrade menu (slide-in panel on the right) ───────────────────────────
     this.upgradeMenu = new UpgradeMenu(this)
+
+    // ── Info panel (slide-in from left, toggled by ⓘ button) ─────────────
+    this.infoPanel = new InfoPanel(this)
 
     // ── EventBus listeners ───────────────────────────────────────────────────
     // Money HUD now reads from the authoritative EconomySystem balance.

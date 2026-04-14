@@ -37,8 +37,16 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   readonly outputTrayY: number
 
   // Processing state
-  private processing    = false
-  private processTimer  = 0
+  private processing        = false
+  private processTimer      = 0
+  private processTotalTime  = 0   // set when processing starts; used for progress %
+
+  // Upgrade-driven overrides (global — same values on every station)
+  private processTimeMultiplier = 1.0
+  private queueMax: number = BALANCE.STATION_QUEUE_MAX
+
+  // Stored so we can unsubscribe on destroy — assigned in constructor
+  private readonly _upgradeHandler: (p: { target: string; stat: string; value: number }) => void
 
   // Transfer cooldowns (so items don't teleport all at once)
   private inTransferCd  = 0
@@ -82,6 +90,13 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this._buildOutputTray()
     this._buildProgressBar()
 
+    this._upgradeHandler = ({ target, stat, value }) => {
+      if (target !== 'station') return
+      if (stat === 'processSpeed') this.processTimeMultiplier = value
+      if (stat === 'queueMax')     this.queueMax = value
+    }
+    EventBus.on('upgrade:applied', this._upgradeHandler)
+
     scene.add.existing(this)
   }
 
@@ -104,8 +119,8 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
   /** Push one item into the input queue. Returns false if rejected. */
   tryDepositInput(itemId: ItemId): boolean {
-    if (this.inputQueue.length >= BALANCE.STATION_QUEUE_MAX) return false
     if (!this.recipe.input.includes(itemId)) return false
+    if (!this._canAcceptItem(itemId)) return false
 
     this.inputQueue.push(itemId)
     EventBus.emit('item:deposited', { item: itemId, stationId: this.recipe.id })
@@ -119,6 +134,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   }
 
   override destroy(fromScene?: boolean): void {
+    EventBus.off('upgrade:applied', this._upgradeHandler)
     this.shadowObj.destroy()
     this.trayShadow.destroy()
     this.trayGfx.destroy()
@@ -133,15 +149,16 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
   private _handleInputTransfer(player: Player, stack: StackSystem): void {
     if (this.inTransferCd > 0) return
-    if (this.inputQueue.length >= BALANCE.STATION_QUEUE_MAX) return
 
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y)
     if (dist > BALANCE.PLAYER_INTERACT_RADIUS + 20) return
 
-    // Pull the top-most matching item out of the stack — items don't have to
-    // be in the right order, the player just walks up and the stack drains
-    // any item this recipe accepts.
-    const taken = stack.removeFirstMatching((id) => this.recipe.input.includes(id))
+    // Pull the top-most matching item out of the stack, but only if the queue
+    // can still accept that specific ingredient type (prevents one ingredient
+    // from hogging all slots in multi-input recipes like the cocktail station).
+    const taken = stack.removeFirstMatching(
+      (id) => this.recipe.input.includes(id) && this._canAcceptItem(id),
+    )
     if (!taken) return
 
     this.inputQueue.push(taken)
@@ -176,8 +193,9 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     if (this.outputBuffer.length >= BALANCE.STATION_OUTPUT_MAX) return
     if (!this._hasRequiredInputs()) return
 
-    this.processing   = true
-    this.processTimer = this.recipe.time
+    this.processing      = true
+    this.processTotalTime = this.recipe.time * this.processTimeMultiplier
+    this.processTimer    = this.processTotalTime
   }
 
   private _handleOutputPickup(player: Player, stack: StackSystem): void {
@@ -223,6 +241,20 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     })
   }
 
+  /** Max items of a given type the queue can hold (proportional to recipe needs). */
+  private _maxForItem(itemId: ItemId): number {
+    const total  = this.recipe.input.length
+    const needed = this.recipe.input.filter(i => i === itemId).length
+    return Math.floor(this.queueMax * needed / total)
+  }
+
+  /** True if the queue can accept one more of this item type. */
+  private _canAcceptItem(itemId: ItemId): boolean {
+    if (this.inputQueue.length >= this.queueMax) return false
+    const count = this.inputQueue.filter(i => i === itemId).length
+    return count < this._maxForItem(itemId)
+  }
+
   private _hasRequiredInputs(): boolean {
     const available = [...this.inputQueue]
     for (const needed of this.recipe.input) {
@@ -253,8 +285,8 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     const hole = new Phaser.GameObjects.Arc(this.scene, 0, -10, 4, 0, 360, false, 0x37474f)
     this.add(hole)
 
-    // Recipe label
-    const inLabel  = this.recipe.input[0] ? (ITEMS[this.recipe.input[0]]?.label ?? '') : ''
+    // Recipe label — join all inputs so multi-ingredient recipes show correctly
+    const inLabel  = this.recipe.input.map(id => ITEMS[id]?.label ?? id).join(' + ')
     const outLabel = ITEMS[this.recipe.output]?.label ?? ''
     const label    = new Phaser.GameObjects.Text(
       this.scene, 0, 28,
@@ -338,7 +370,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   private _updateVisuals(dt: number): void {
     // Progress bar
     if (this.processing) {
-      const progress = 1 - this.processTimer / this.recipe.time
+      const progress = 1 - this.processTimer / this.processTotalTime
       const MAX_W = 42
       this.pBarBg.setVisible(true)
       this.pBarFill

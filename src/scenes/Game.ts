@@ -17,6 +17,7 @@ import { EventBus } from '../systems/EventBus'
 import { RECIPE_BY_ID } from '../config/recipes'
 import { ITEMS } from '../config/items'
 import { ZONES } from '../config/zones'
+import { BALANCE } from '../config/balance'
 import type { UI } from './UI'
 import type { ResourceNodeType, ZoneDef, NodeSpawnDef, StationSpawnDef } from '../types'
 
@@ -52,6 +53,14 @@ export class Game extends Phaser.Scene {
   // Bound EventBus handlers stored so the matching `off()` works on shutdown.
   private _onZoneUnlockedBound  = (p: { zoneId: string }): void => this._onZoneUnlocked(p.zoneId)
   private _onSlotPurchasedBound = (p: { slotId: string }): void => this._onSlotPurchased(p.slotId)
+  private _onUpgradeAppliedBound = (p: { target: string; stat: string; value: number }): void => {
+    if (p.target !== 'worker') return
+    switch (p.stat) {
+      case 'unlock':   this._assignWorkerToZone(); break
+      case 'speed':    for (const ai of this.workerAIs) ai.applyWorkerSpeed(p.value);    break
+      case 'maxStack': for (const ai of this.workerAIs) ai.applyWorkerMaxStack(p.value); break
+    }
+  }
 
   constructor() {
     super({ key: 'Game' })
@@ -114,14 +123,13 @@ export class Game extends Phaser.Scene {
     // purchase slot). Bound handlers so we can `off()` them on shutdown —
     // without this, every scene.restart() would leave stale handlers on the
     // bus and trigger duplicate builds next time someone purchases.
-    EventBus.on('zone:unlocked',  this._onZoneUnlockedBound)
-    EventBus.on('slot:purchased', this._onSlotPurchasedBound)
+    EventBus.on('zone:unlocked',   this._onZoneUnlockedBound)
+    EventBus.on('slot:purchased',  this._onSlotPurchasedBound)
+    EventBus.on('upgrade:applied', this._onUpgradeAppliedBound)
     this.events.once('shutdown', () => {
-      EventBus.off('zone:unlocked',  this._onZoneUnlockedBound)
-      EventBus.off('slot:purchased', this._onSlotPurchasedBound)
-      // WorkerAI subscribes to `upgrade:applied` in its constructor — without
-      // an explicit destroy() the old planners stay on the bus across
-      // restarts and would each spawn a duplicate worker on the next purchase.
+      EventBus.off('zone:unlocked',   this._onZoneUnlockedBound)
+      EventBus.off('slot:purchased',  this._onSlotPurchasedBound)
+      EventBus.off('upgrade:applied', this._onUpgradeAppliedBound)
       for (const w of this.workerAIs) w.destroy()
     })
 
@@ -170,6 +178,22 @@ export class Game extends Phaser.Scene {
     for (const ps of this.purchaseSlots)   ps.tick(delta, this.player)
     for (const w of this.workerAIs)        w.tick(delta)
     for (const cs of this.customerSystems) cs.tick(delta)
+  }
+
+  // ── Worker assignment ─────────────────────────────────────────────────────
+
+  /**
+   * Assign the next worker (regular or cashier) to the zone with the fewest
+   * workers. This ensures that buying worker_1/2/3 distributes one worker per
+   * zone instead of broadcasting to every zone planner simultaneously.
+   */
+  private _assignWorkerToZone(): void {
+    if (this.workerAIs.length === 0) return
+    let target = this.workerAIs[0]
+    for (const ai of this.workerAIs) {
+      if (ai.workerCount < target.workerCount) target = ai
+    }
+    target.spawnWorker()
   }
 
   // ── Zone builder ──────────────────────────────────────────────────────────
@@ -245,9 +269,26 @@ export class Game extends Phaser.Scene {
     const register = new CashRegister(this, zone.cashRegisterPos.x, zone.cashRegisterPos.y)
     this.registers.push(register)
 
-    // Tell the planner where the register is so it can post a cashier worker
-    // next to it when the cashier_1 upgrade is purchased.
+    // Tell the planner where the register is so it knows where to stand.
     worker.setRegisterPos(register.x, register.y)
+
+    // Cashier hire — physical sign to the right of the register.
+    // Uses the same PurchaseSlot / unlockedSlots save mechanism as nodes and
+    // stations, so the hired cashier persists across reloads automatically.
+    const cashierSlotId = `cashier_${zone.id}`
+    if (EconomySystem.isSlotUnlocked(cashierSlotId)) {
+      worker.spawnCashierWorker()
+    } else {
+      const hireSlot = new PurchaseSlot(
+        this, register.x + 70, register.y,
+        cashierSlotId, BALANCE.CASHIER_HIRE_COST, 'HIRE CASHIER',
+      )
+      this.purchaseSlots.push(hireSlot)
+      this.pendingSlots.set(cashierSlotId, {
+        slot:  hireSlot,
+        build: () => worker.spawnCashierWorker(),
+      })
+    }
 
     // A cashier is "anyone standing near the register" — the player OR any
     // of this zone's workers. The closure is evaluated every frame by the

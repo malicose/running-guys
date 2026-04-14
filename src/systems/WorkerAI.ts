@@ -1,7 +1,6 @@
 import Phaser from 'phaser'
 import { Worker } from '../entities/Worker'
 import { BALANCE } from '../config/balance'
-import { EventBus } from './EventBus'
 import type { ResourceNode } from '../entities/ResourceNode'
 import type { ProcessingStation } from '../entities/ProcessingStation'
 import type { ShopCounter } from '../entities/ShopCounter'
@@ -52,6 +51,13 @@ export class WorkerAI {
 
   private workers: Worker[] = []
 
+  // ── Claim tracking ────────────────────────────────────────────────────────
+  // Prevents multiple workers from being assigned the same node/station at
+  // the same time. Claims are released when a worker's task is cleared.
+  private claimedNodes    = new Set<ResourceNode>()
+  private claimedStations = new Set<ProcessingStation>()   // fetchOutput only
+  private workerClaims    = new Map<Worker, { node?: ResourceNode; station?: ProcessingStation }>()
+
   private centerX: number
   private centerY: number
 
@@ -64,27 +70,6 @@ export class WorkerAI {
   // its stat upgrades inherits the upgraded values.
   private workerSpeed:    number | null = null
   private workerMaxStack: number | null = null
-
-  private onUpgrade = (p: { upgradeId: string; target: 'player' | 'worker'; stat: string; value: number }): void => {
-    if (p.target !== 'worker') return
-
-    switch (p.stat) {
-      case 'unlock':
-        this._spawnWorker()
-        break
-      case 'cashier':
-        this._spawnCashierWorker()
-        break
-      case 'speed':
-        this.workerSpeed = p.value
-        for (const w of this.workers) w.speed = p.value
-        break
-      case 'maxStack':
-        this.workerMaxStack = p.value
-        for (const w of this.workers) w.maxStack = p.value
-        break
-    }
-  }
 
   constructor(
     scene:    Phaser.Scene,
@@ -108,7 +93,6 @@ export class WorkerAI {
     this.centerX = count ? sx / count : scene.cameras.main.centerX
     this.centerY = count ? sy / count : scene.cameras.main.centerY
 
-    EventBus.on('upgrade:applied', this.onUpgrade)
   }
 
   tick(delta: number): void {
@@ -116,7 +100,6 @@ export class WorkerAI {
   }
 
   destroy(): void {
-    EventBus.off('upgrade:applied', this.onUpgrade)
     for (const w of this.workers) w.destroy()
     this.workers = []
   }
@@ -124,6 +107,33 @@ export class WorkerAI {
   /** Live list of workers in this zone — used by CashRegister to know which
    *  nearby NPCs count as a cashier. */
   get workerList(): readonly Worker[] { return this.workers }
+
+  /** Number of workers currently in this zone. Used by Game.ts for round-robin assignment. */
+  get workerCount(): number { return this.workers.length }
+
+  // ── Called by Game.ts (not EventBus) so workers go to the right zone ──────
+
+  /** Spawn a regular roaming worker in this zone. */
+  spawnWorker(): void {
+    this._spawnWorker()
+  }
+
+  /** Spawn a stationary cashier worker next to this zone's register. */
+  spawnCashierWorker(): void {
+    this._spawnCashierWorker()
+  }
+
+  /** Apply a speed upgrade to all current and future workers in this zone. */
+  applyWorkerSpeed(speed: number): void {
+    this.workerSpeed = speed
+    for (const w of this.workers) w.speed = speed
+  }
+
+  /** Apply a maxStack upgrade to all current and future workers in this zone. */
+  applyWorkerMaxStack(maxStack: number): void {
+    this.workerMaxStack = maxStack
+    for (const w of this.workers) w.maxStack = maxStack
+  }
 
   // ── Dynamic zone growth (purchase slots) ─────────────────────────────────
 
@@ -153,11 +163,15 @@ export class WorkerAI {
    * later.
    */
   pickTask(worker: Worker): WorkerTask | null {
+    // Release any resource this worker previously claimed so the search
+    // below can consider it for reassignment.
+    this.releaseWorkerClaim(worker)
+
     // 1. Carrying something → find a place for the top item.
     const top = worker.peekTop()
     if (top) {
       const t = this._findDropTask(top)
-      if (t) return t
+      if (t) { this._applyClaim(worker, t); return t }
       // No place to drop — orphan item, do nothing useful with it for now.
       return null
     }
@@ -169,7 +183,7 @@ export class WorkerAI {
 
     for (const counter of sorted) {
       const t = this._findChainTask(counter.productType, 2)
-      if (t) return t
+      if (t) { this._applyClaim(worker, t); return t }
     }
 
     return null
@@ -178,6 +192,54 @@ export class WorkerAI {
   /** Spawn position used by the Worker for idle wandering. */
   get zoneCenter(): { x: number; y: number } {
     return { x: this.centerX, y: this.centerY }
+  }
+
+  /**
+   * Release the claim held by this worker. Called by the worker itself when
+   * its task is cleared (bailed, completed, or depleted), so the freed
+   * resource is immediately available to the next idle worker.
+   */
+  releaseWorkerClaim(worker: Worker): void {
+    const claim = this.workerClaims.get(worker)
+    if (!claim) return
+    if (claim.node)    this.claimedNodes.delete(claim.node)
+    if (claim.station) this.claimedStations.delete(claim.station)
+    this.workerClaims.delete(worker)
+  }
+
+  // ── Private — claim helpers ───────────────────────────────────────────────
+
+  /** Find the first unclaimed node that yields `itemId`. Falls back to any
+   *  node in `this.nodes` so purchased secondary nodes (palm #2, etc.) are
+   *  used once the primary is already claimed. */
+  private _findUnclaimedNode(itemId: ItemId): ResourceNode | undefined {
+    const primary = this.producerNode.get(itemId)
+    if (primary && !this.claimedNodes.has(primary)) return primary
+    return this.nodes.find(n => n.yieldsItem === itemId && !this.claimedNodes.has(n))
+  }
+
+  /** Find the first unclaimed station that outputs `itemId` and has items
+   *  ready in its output buffer. */
+  private _findUnclaimedStationWithOutput(itemId: ItemId): ProcessingStation | undefined {
+    const primary = this.producerStation.get(itemId)
+    if (primary && primary.outputBuffer.length > 0 && !this.claimedStations.has(primary)) {
+      return primary
+    }
+    return this.stations.find(
+      s => s.recipe.output === itemId && s.outputBuffer.length > 0 && !this.claimedStations.has(s),
+    )
+  }
+
+  private _applyClaim(worker: Worker, task: WorkerTask): void {
+    const claim: { node?: ResourceNode; station?: ProcessingStation } = {}
+    if (task.kind === 'harvest' && task.node) {
+      claim.node = task.node
+      this.claimedNodes.add(task.node)
+    } else if (task.kind === 'fetchOutput' && task.station) {
+      claim.station = task.station
+      this.claimedStations.add(task.station)
+    }
+    this.workerClaims.set(worker, claim)
   }
 
   // ── Private — task search ─────────────────────────────────────────────────
@@ -203,21 +265,24 @@ export class WorkerAI {
    *  • If a station produces it and has output ready → go pick that up.
    *  • Else find an ingredient the station is missing and recurse one level
    *    deeper to fetch it (harvest a node, or pull from another station).
+   *
+   * Claimed nodes and stations are skipped so workers spread across
+   * different resources instead of piling onto the same one.
    */
   private _findChainTask(targetItem: ItemId, depth: number): WorkerTask | null {
-    const station = this.producerStation.get(targetItem)
-
-    // (a) Output already sitting in the tray → grab it.
-    if (station && station.outputBuffer.length > 0) {
+    // (a) Output already sitting in the tray → grab it (if unclaimed).
+    const stationWithOutput = this._findUnclaimedStationWithOutput(targetItem)
+    if (stationWithOutput) {
       return {
         kind:    'fetchOutput',
-        targetX: station.outputTrayX,
-        targetY: station.outputTrayY + 10,
-        station,
+        targetX: stationWithOutput.outputTrayX,
+        targetY: stationWithOutput.outputTrayY + 10,
+        station: stationWithOutput,
       }
     }
 
     // (b) Station exists but isn't producing yet — find a missing input.
+    const station = this.producerStation.get(targetItem)
     if (station && station.inputQueue.length < BALANCE.STATION_QUEUE_MAX) {
       const queueCounts = new Map<ItemId, number>()
       for (const id of station.inputQueue) {
@@ -228,7 +293,7 @@ export class WorkerAI {
         (queueCounts.get(a) ?? 0) - (queueCounts.get(b) ?? 0))
 
       for (const inp of inputs) {
-        const node = this.producerNode.get(inp)
+        const node = this._findUnclaimedNode(inp)
         if (node) {
           return { kind: 'harvest', targetX: node.x - 30, targetY: node.y + 20, node }
         }
@@ -240,7 +305,7 @@ export class WorkerAI {
     }
 
     // (c) Last resort — if a raw node yields targetItem directly, harvest it.
-    const directNode = this.producerNode.get(targetItem)
+    const directNode = this._findUnclaimedNode(targetItem)
     if (directNode) {
       return { kind: 'harvest', targetX: directNode.x - 30, targetY: directNode.y + 20, node: directNode }
     }

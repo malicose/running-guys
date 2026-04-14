@@ -214,9 +214,10 @@ export class Worker extends Phaser.GameObjects.Container {
   }
 
   private _clearTask(): void {
-    this.task      = null
-    this.macroState     = 'idle'
-    this.idleTimer = IDLE_REPLAN_TIME    // re-ask immediately on next tick
+    this.ai.releaseWorkerClaim(this)
+    this.task       = null
+    this.macroState = 'idle'
+    this.idleTimer  = IDLE_REPLAN_TIME    // re-ask immediately on next tick
   }
 
   // ── Movement ──────────────────────────────────────────────────────────────

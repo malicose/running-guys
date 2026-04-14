@@ -35,6 +35,7 @@ export const BALANCE = {
   // ─── Cash register ───────────────────────────────────────────────────────
   REGISTER_COLLECT_RADIUS:  70,     // px — player collects pending money
   CASHIER_RADIUS:           64,     // px — cashier counts as present if within this of register
+  CASHIER_HIRE_COST:        800,    // cost to hire a stationary cashier at a register
 
   // ─── Prices (fallback; counters override via ZoneDef) ────────────────────
   PRICES: {

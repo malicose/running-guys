@@ -66,8 +66,8 @@ export interface ZoneDef {
 
 // ─── Upgrade ─────────────────────────────────────────────────────────────────
 
-export type UpgradeTarget = 'player' | 'worker'
-export type UpgradeStat = 'maxStack' | 'speed' | 'unlock' | 'cashier'
+export type UpgradeTarget = 'player' | 'worker' | 'station'
+export type UpgradeStat = 'maxStack' | 'speed' | 'unlock' | 'cashier' | 'processSpeed' | 'queueMax'
 
 export interface UpgradeDef {
   id: string
@@ -99,7 +99,7 @@ export interface EventMap {
   'zone:unlocked':    { zoneId: string }
   'slot:purchased':   { slotId: string }
   'upgrade:bought':   { upgradeId: string }
-  'upgrade:applied':  { upgradeId: string; target: 'player' | 'worker'; stat: string; value: number }
+  'upgrade:applied':  { upgradeId: string; target: 'player' | 'worker' | 'station'; stat: string; value: number }
   'economy:changed':  { balance: number }
   'upgradeboard:proximity': { near: boolean }
   'stack:full':       Record<string, never>
