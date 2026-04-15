@@ -36,6 +36,7 @@ export class Customer extends Phaser.GameObjects.Container {
 
   private pricePaid   = 0
   private facingAngle = 0
+  private _depthY     = -Infinity   // cached y — only call setDepth when y changes
 
   // Visuals
   private shadowObj!:  Phaser.GameObjects.Ellipse
@@ -236,8 +237,13 @@ export class Customer extends Phaser.GameObjects.Container {
   }
 
   private _syncVisuals(): void {
-    this.setDepth(this.y)
-    this.shadowObj.setPosition(this.x + 1, this.y + 12).setDepth(this.y - 1)
-    this.shadowSoft.setPosition(this.x + 2, this.y + 13).setDepth(this.y - 2)
+    if (this.y !== this._depthY) {
+      this._depthY = this.y
+      this.setDepth(this.y)
+      this.shadowObj.setDepth(this.y - 1)
+      this.shadowSoft.setDepth(this.y - 2)
+    }
+    this.shadowObj.setPosition(this.x + 1, this.y + 12)
+    this.shadowSoft.setPosition(this.x + 2, this.y + 13)
   }
 }

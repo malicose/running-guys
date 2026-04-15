@@ -21,6 +21,8 @@ export class UpgradeBoard extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y)
     this._build()
+    this.setDepth(y + 5)
+    this.shadowObj.setDepth(y - 1)
     scene.add.existing(this)
   }
 
@@ -37,8 +39,6 @@ export class UpgradeBoard extends Phaser.GameObjects.Container {
     const t = this.scene.time.now * 0.003
     this.glow.setScale(1 + Math.sin(t) * 0.12)
     this.glow.setAlpha(near ? 0.9 : 0.5)
-
-    this._syncDepth()
 
     // delta unused but kept for API parity with other entities
     void delta
@@ -115,8 +115,5 @@ export class UpgradeBoard extends Phaser.GameObjects.Container {
     g.beginPath(); g.moveTo(-24,  -2); g.lineTo(24,  -2); g.strokePath()
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — board never moves.
 }

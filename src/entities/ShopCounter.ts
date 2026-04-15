@@ -51,6 +51,8 @@ export class ShopCounter extends Phaser.GameObjects.Container {
     this.price       = price
 
     this._buildVisual()
+    this.setDepth(this.y + 5)
+    this.shadowObj.setDepth(this.y - 1)
     scene.add.existing(this)
   }
 
@@ -124,23 +126,14 @@ export class ShopCounter extends Phaser.GameObjects.Container {
     const dt = delta / 1000
     this.transferCd = Math.max(0, this.transferCd - dt)
 
-    if (this.transferCd > 0 || this.isFull) {
-      this._syncDepth()
-      return
-    }
+    if (this.transferCd > 0 || this.isFull) return
 
     const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y)
-    if (dist > BALANCE.PLAYER_INTERACT_RADIUS + 28) {
-      this._syncDepth()
-      return
-    }
+    if (dist > BALANCE.PLAYER_INTERACT_RADIUS + 28) return
 
     // Drain any matching item from the player's stack regardless of order.
     const taken = stack.removeFirstMatching((id) => id === this.productType)
-    if (!taken) {
-      this._syncDepth()
-      return
-    }
+    if (!taken) return
 
     this.stock.push(this.productType)
     this.transferCd = BALANCE.TRANSFER_INTERVAL
@@ -156,8 +149,6 @@ export class ShopCounter extends Phaser.GameObjects.Container {
         onComplete: () => { this.x = this.x },
       })
     }
-
-    this._syncDepth()
   }
 
   override destroy(fromScene?: boolean): void {
@@ -242,8 +233,5 @@ export class ShopCounter extends Phaser.GameObjects.Container {
     }
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — counter never moves.
 }

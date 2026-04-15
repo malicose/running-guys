@@ -54,6 +54,10 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     this._buildTree()
     this._buildProgressBar()
 
+    // Set depth once — resource nodes never move
+    this.setDepth(y + 5)
+    this.shadowObj.setDepth(y - 1)
+
     scene.add.existing(this)
 
     // Idle sway for tree-like nodes (palm + pineapple bush — they have a
@@ -83,7 +87,6 @@ export class ResourceNode extends Phaser.GameObjects.Container {
       this.respawnTimer -= dt
       if (this.respawnTimer <= 0) this._respawn()
       this._hideProgressBar()
-      this._syncDepth()
       return
     }
 
@@ -117,7 +120,6 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     }
 
     this.inRangePrev = inRange && canAdd
-    this._syncDepth()
   }
 
   /**
@@ -633,10 +635,5 @@ export class ResourceNode extends Phaser.GameObjects.Container {
     })
   }
 
-  private _syncDepth(): void {
-    // Tree root is at y, canopy extends up — use y + small offset so
-    // the base of the trunk competes correctly with other objects at same y.
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — resource nodes never move.
 }

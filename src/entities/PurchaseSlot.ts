@@ -38,6 +38,8 @@ export class PurchaseSlot extends Phaser.GameObjects.Container {
     this.slotId = slotId
     this.cost   = cost
     this._build(hint)
+    this.setDepth(y + 2)
+    this.shadowObj.setDepth(y - 1)
     scene.add.existing(this)
   }
 
@@ -77,7 +79,6 @@ export class PurchaseSlot extends Phaser.GameObjects.Container {
     this.glow.setScale(1 + Math.sin(t) * 0.12)
     this.glow.setAlpha(near ? 0.85 : 0.45)
 
-    this._syncDepth()
   }
 
   override destroy(fromScene?: boolean): void {
@@ -162,8 +163,5 @@ export class PurchaseSlot extends Phaser.GameObjects.Container {
     })
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 2)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — slot never moves.
 }

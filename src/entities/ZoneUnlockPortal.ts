@@ -31,6 +31,8 @@ export class ZoneUnlockPortal extends Phaser.GameObjects.Container {
     this.zoneId = zoneId
     this.cost   = cost
     this._build()
+    this.setDepth(y + 5)
+    this.shadowObj.setDepth(y - 1)
     scene.add.existing(this)
   }
 
@@ -73,7 +75,6 @@ export class ZoneUnlockPortal extends Phaser.GameObjects.Container {
     this.glow.setScale(1 + Math.sin(t) * 0.1)
     this.glow.setAlpha(near ? 0.95 : 0.55)
 
-    this._syncDepth()
   }
 
   override destroy(fromScene?: boolean): void {
@@ -178,8 +179,5 @@ export class ZoneUnlockPortal extends Phaser.GameObjects.Container {
     })
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — portal never moves.
 }

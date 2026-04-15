@@ -46,6 +46,7 @@ export class Worker extends Phaser.GameObjects.Container {
   private actionTimer   = 0
   private idleTimer     = 0
   private facingAngle   = 0
+  private _depthY       = -Infinity   // cached y — only call setDepth when y changes
 
   /** Own stack (runtime) */
   private stack: { id: ItemId; gfx: Phaser.GameObjects.Graphics }[] = []
@@ -363,9 +364,14 @@ export class Worker extends Phaser.GameObjects.Container {
   }
 
   private _syncVisual(): void {
-    this.setDepth(this.y)
-    this.shadowObj.setPosition(this.x + 1, this.y + 12).setDepth(this.y - 1)
-    this.shadowSoft.setPosition(this.x + 2, this.y + 13).setDepth(this.y - 2)
+    if (this.y !== this._depthY) {
+      this._depthY = this.y
+      this.setDepth(this.y)
+      this.shadowObj.setDepth(this.y - 1)
+      this.shadowSoft.setDepth(this.y - 2)
+    }
+    this.shadowObj.setPosition(this.x + 1, this.y + 12)
+    this.shadowSoft.setPosition(this.x + 2, this.y + 13)
     this.stateLabel.setText(this.stationaryTarget ? 'cashier' : (this.task?.kind ?? this.macroState))
     this._positionStackSprites()
   }

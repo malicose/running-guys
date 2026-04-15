@@ -56,12 +56,14 @@ export class CustomerSystem {
       this.spawnTimer = BALANCE.CUSTOMER_SPAWN_INTERVAL
     }
 
-    // Update existing customers; collect done ones
-    for (const c of this.customers) c.tick(delta)
-
-    const done = this.customers.filter(c => c.isDone)
-    for (const c of done) c.destroy()
-    this.customers = this.customers.filter(c => !c.isDone)
+    // Update existing customers; remove done ones in-place (no temp arrays)
+    for (let i = this.customers.length - 1; i >= 0; i--) {
+      this.customers[i].tick(delta)
+      if (this.customers[i].isDone) {
+        this.customers[i].destroy()
+        this.customers.splice(i, 1)
+      }
+    }
   }
 
   // ── Private ───────────────────────────────────────────────────────────────

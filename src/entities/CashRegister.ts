@@ -16,8 +16,9 @@ export interface CashierCandidate { x: number; y: number }
  * Step 8 (here): player walks up → coin arc animation → money credited.
  */
 export class CashRegister extends Phaser.GameObjects.Container {
-  private pendingMoney = 0
-  private collectCd    = 0   // brief cooldown after collection
+  private pendingMoney    = 0
+  private collectCd       = 0   // brief cooldown after collection
+  private _cashierTimer   = 0   // throttle cashier proximity check to every 200ms
 
   /** Ordered queue of customers at this register — head (index 0) is being served. */
   private queue: Customer[] = []
@@ -43,6 +44,8 @@ export class CashRegister extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y)
     this._buildVisual()
+    this.setDepth(this.y + 5)
+    this.shadowObj.setDepth(this.y - 1)
     scene.add.existing(this)
   }
 
@@ -104,15 +107,20 @@ export class CashRegister extends Phaser.GameObjects.Container {
     const dt = delta / 1000
     this.collectCd = Math.max(0, this.collectCd - dt)
 
-    // Cashier presence check — any candidate within CASHIER_RADIUS counts.
-    this._hasCashier = false
-    const candidates = this.cashierCandidates()
-    for (const cand of candidates) {
-      const d = Phaser.Math.Distance.Between(this.x, this.y, cand.x, cand.y)
-      if (d < BALANCE.CASHIER_RADIUS) { this._hasCashier = true; break }
+    // Cashier presence check — throttled to every 200ms to avoid rebuilding
+    // the candidate list and running distance checks every single frame.
+    this._cashierTimer += dt
+    if (this._cashierTimer >= 0.2) {
+      this._cashierTimer = 0
+      this._hasCashier = false
+      const candidates = this.cashierCandidates()
+      for (const cand of candidates) {
+        const d = Phaser.Math.Distance.Between(this.x, this.y, cand.x, cand.y)
+        if (d < BALANCE.CASHIER_RADIUS) { this._hasCashier = true; break }
+      }
+      this.cashierIcon.setText(this._hasCashier ? '✓' : '✗')
+      this.cashierIcon.setColor(this._hasCashier ? '#a5d6a7' : '#ef9a9a')
     }
-    this.cashierIcon.setText(this._hasCashier ? '✓' : '✗')
-    this.cashierIcon.setColor(this._hasCashier ? '#a5d6a7' : '#ef9a9a')
 
     if (this.pendingMoney > 0 && this.collectCd === 0) {
       const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y)
@@ -129,7 +137,6 @@ export class CashRegister extends Phaser.GameObjects.Container {
       this.coinBag.setScale(1)
     }
 
-    this._syncDepth()
   }
 
   override destroy(fromScene?: boolean): void {
@@ -269,8 +276,5 @@ export class CashRegister extends Phaser.GameObjects.Container {
     this.moneyLabel.setText(this.pendingMoney > 0 ? `$${this.pendingMoney}` : '')
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
+  // Depth is set once in constructor — register never moves.
 }

@@ -32,6 +32,7 @@ export class Player extends Phaser.GameObjects.Container {
   // Movement state
   private facingAngle = 0          // radians, 0 = right
   private isMoving = false
+  private _depthY = -Infinity      // cached y for setDepth — only update when y changes
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y)
@@ -158,10 +159,13 @@ export class Player extends Phaser.GameObjects.Container {
       this.legR.setPosition( 5, 14)
     }
 
-    // Y-sort depth
-    this.setDepth(this.y)
-    this.shadowObj.setDepth(this.y - 1)
-    this.shadowSoft.setDepth(this.y - 2)
+    // Y-sort depth — only call setDepth when y actually changed
+    if (this.y !== this._depthY) {
+      this._depthY = this.y
+      this.setDepth(this.y)
+      this.shadowObj.setDepth(this.y - 1)
+      this.shadowSoft.setDepth(this.y - 2)
+    }
 
     // Shadows follow player, slightly offset toward bottom-right
     this.shadowObj.setPosition(this.x + 1, this.y + 14)

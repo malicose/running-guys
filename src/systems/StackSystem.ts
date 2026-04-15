@@ -32,6 +32,7 @@ export class StackSystem {
   private scene: Phaser.Scene
   private player: Player
   private items: StackItemView[] = []
+  private _lastPlayerY = -Infinity   // skip setDepth when player Y unchanged
 
   constructor(scene: Phaser.Scene, player: Player) {
     this.scene  = scene
@@ -135,6 +136,10 @@ export class StackSystem {
     let px = this.player.x
     let py = this.player.y - STACK_ANCHOR_Y   // anchor = player's upper back
 
+    const playerY       = this.player.y
+    const depthChanged  = playerY !== this._lastPlayerY
+    if (depthChanged) this._lastPlayerY = playerY
+
     for (let i = 0; i < this.items.length; i++) {
       const a = this.items[i].angle
       px = px + Math.sin(a) * ITEM_SPACING
@@ -143,8 +148,10 @@ export class StackSystem {
       this.items[i].gfx.setPosition(px, py)
       this.items[i].gfx.setRotation(a)
 
-      // Render behind player — depth is slightly below player's own depth
-      this.items[i].gfx.setDepth(this.player.y - 1 - i * 0.01)
+      // Only update depth when player Y actually changed
+      if (depthChanged) {
+        this.items[i].gfx.setDepth(playerY - 1 - i * 0.01)
+      }
     }
   }
 

@@ -53,7 +53,13 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
   private outTransferCd = 0
 
   // Ambient bubble spawn cadence (only ticks while processing)
-  private bubbleTimer   = 0
+  private bubbleTimer = 0
+  // Pre-allocated bubble pool — recycle instead of create+destroy per spawn
+  private bubblePool: Array<{ arc: Phaser.GameObjects.Arc; active: boolean }> = []
+
+  // Dirty flags — only re-render icon rows when contents actually changed
+  private _queueDirty  = true
+  private _outputDirty = true
 
   // Visuals — station body
   private shadowObj!:      Phaser.GameObjects.Ellipse
@@ -90,6 +96,19 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this._buildOutputTray()
     this._buildProgressBar()
 
+    // Pre-allocate 5 bubbles — enough to have several in-flight simultaneously
+    for (let i = 0; i < 5; i++) {
+      const arc = this.scene.add.circle(x, y - 14, 3, 0xffffff, 0) as Phaser.GameObjects.Arc
+      arc.setVisible(false).setStrokeStyle(1, 0xffffff, 0.6).setDepth(y + 20)
+      this.bubblePool.push({ arc, active: false })
+    }
+
+    // Set static depths once — station never moves
+    this.setDepth(y + 5)
+    this.shadowObj.setDepth(y - 1)
+    this.trayGfx.setDepth(this.outputTrayY + 5)
+    this.trayShadow.setDepth(this.outputTrayY - 1)
+
     this._upgradeHandler = ({ target, stat, value }) => {
       if (target !== 'station') return
       if (stat === 'processSpeed') this.processTimeMultiplier = value
@@ -112,7 +131,6 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this._handleOutputPickup(player, stack)
 
     this._updateVisuals(dt)
-    this._syncDepth()
   }
 
   // ── Worker-facing API (no proximity checks) ──────────────────────────────
@@ -123,6 +141,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     if (!this._canAcceptItem(itemId)) return false
 
     this.inputQueue.push(itemId)
+    this._queueDirty = true
     EventBus.emit('item:deposited', { item: itemId, stationId: this.recipe.id })
     this._popInputFeedback()
     return true
@@ -130,7 +149,9 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
 
   /** Pop one item from the output buffer, or null if empty. */
   tryTakeOutput(): ItemId | null {
-    return this.outputBuffer.pop() ?? null
+    const item = this.outputBuffer.pop() ?? null
+    if (item !== null) this._outputDirty = true
+    return item
   }
 
   override destroy(fromScene?: boolean): void {
@@ -142,6 +163,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     this.pBarFill.destroy()
     for (const ic of this.queueIcons)  ic.destroy()
     for (const ic of this.outputIcons) ic.destroy()
+    for (const b  of this.bubblePool)  b.arc.destroy()
     super.destroy(fromScene)
   }
 
@@ -162,6 +184,7 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     if (!taken) return
 
     this.inputQueue.push(taken)
+    this._queueDirty = true
     this.inTransferCd = BALANCE.TRANSFER_INTERVAL
 
     EventBus.emit('item:deposited', { item: taken, stationId: this.recipe.id })
@@ -178,7 +201,9 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
           const idx = this.inputQueue.indexOf(needed)
           if (idx !== -1) this.inputQueue.splice(idx, 1)
         }
+        this._queueDirty = true
         this.outputBuffer.push(this.recipe.output)
+        this._outputDirty = true
         EventBus.emit('item:processed', {
           input:     this.recipe.input,
           output:    this.recipe.output,
@@ -210,13 +235,16 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     if (dist > BALANCE.PLAYER_INTERACT_RADIUS + 24) return
 
     const item = this.outputBuffer.pop()!
+    this._outputDirty = true
     stack.addItem(item)
     this.outTransferCd = BALANCE.TRANSFER_INTERVAL
   }
 
-  /** Spawn one ambient bubble drifting up from the machine top — visual
-   *  cue that something is brewing. Tinted by the recipe's output item. */
+  /** Fire one ambient bubble from the pre-allocated pool — zero allocation. */
   private _spawnBubble(): void {
+    const slot = this.bubblePool.find(b => !b.active)
+    if (!slot) return   // all 5 in-flight, skip this tick
+
     const outDef = ITEMS[this.recipe.output]
     const tint   = outDef?.color ?? 0xffffff
 
@@ -224,12 +252,17 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     const sx   = this.x + offX
     const sy   = this.y - 14
 
-    const bubble = this.scene.add.circle(sx, sy, 2 + Math.random() * 1.5, tint, 0.85)
-    bubble.setStrokeStyle(1, 0xffffff, 0.6)
-    bubble.setDepth(this.y + 20)
+    slot.arc
+      .setFillStyle(tint, 0.85)
+      .setRadius(2 + Math.random() * 1.5)
+      .setPosition(sx, sy)
+      .setAlpha(0.85)
+      .setScale(1)
+      .setVisible(true)
+    slot.active = true
 
     this.scene.tweens.add({
-      targets:  bubble,
+      targets:  slot.arc,
       x:        sx + (Math.random() - 0.5) * 18,
       y:        sy - 28 - Math.random() * 12,
       alpha:    0,
@@ -237,7 +270,10 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
       scaleY:   1.6,
       duration: 1100,
       ease:     'Sine.Out',
-      onComplete: () => bubble.destroy(),
+      onComplete: () => {
+        slot.arc.setVisible(false)
+        slot.active = false
+      },
     })
   }
 
@@ -392,30 +428,33 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
       this.bubbleTimer = 0
     }
 
-    // Queue icons (left of station)
-    this._refreshIcons(
-      this.inputQueue,
-      this.queueIcons,
-      this.queueIconIds,
-      this.x - 34,
-      this.y,
-      -ICON_SIZE - 2,
-    )
+    // Queue icons (left of station) — only refresh when contents changed
+    if (this._queueDirty) {
+      this._refreshIcons(
+        this.inputQueue,
+        this.queueIcons,
+        this.queueIconIds,
+        this.x - 34,
+        this.y,
+        -ICON_SIZE - 2,
+      )
+      this._queueDirty = false
+    }
 
-    // Output icons (on output tray)
-    this._refreshIcons(
-      this.outputBuffer,
-      this.outputIcons,
-      this.outputIconIds,
-      this.outputTrayX,
-      this.outputTrayY - 8,
-      0,
-      true,
-    )
-
-    // Tray depth
-    this.trayGfx.setDepth(this.outputTrayY + 5)
-    this.trayShadow.setDepth(this.outputTrayY - 1)
+    // Output icons (on output tray) — only refresh when contents changed
+    if (this._outputDirty) {
+      this._refreshIcons(
+        this.outputBuffer,
+        this.outputIcons,
+        this.outputIconIds,
+        this.outputTrayX,
+        this.outputTrayY - 8,
+        0,
+        true,
+      )
+      this._outputDirty = false
+    }
+    // Tray depth is set once in constructor — station never moves.
   }
 
   /** Sync or create icon graphics for an array of items */
@@ -477,8 +516,5 @@ export class ProcessingStation extends Phaser.GameObjects.Container {
     })
   }
 
-  private _syncDepth(): void {
-    this.setDepth(this.y + 5)
-    this.shadowObj.setDepth(this.y - 1)
-  }
 }
+
