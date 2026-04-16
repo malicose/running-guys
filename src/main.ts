@@ -9,8 +9,11 @@ import { UI } from './scenes/UI'
  */
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,          // WebGL → Canvas fallback
-  width: 480,
-  height: 854,
+  // 2× the logical viewport so the canvas has enough pixels to render
+  // crisply on retina / HiDPI displays.  All scene cameras use setZoom(2)
+  // so the visible world area stays identical to the original 480 × 854.
+  width: 960,
+  height: 1708,
   backgroundColor: '#1565c0',
   parent: 'game',
 

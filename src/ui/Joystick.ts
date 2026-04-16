@@ -15,8 +15,8 @@ export class Joystick {
   private baseGfx: Phaser.GameObjects.Arc
   private thumbGfx: Phaser.GameObjects.Arc
 
-  private readonly radius = 58
-  private readonly deadZone = 6   // pixels — below this = no input
+  private readonly radius = 116   // 2× original (canvas is 960×1708 vs old 480×854)
+  private readonly deadZone = 12  // 2× original
 
   private centerX = 0
   private centerY = 0
@@ -34,27 +34,30 @@ export class Joystick {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
-    const { width, height } = scene.scale
 
-    this.DEFAULT_X = width - 110
-    this.DEFAULT_Y = height - 140
+    // UI scene uses full canvas coordinate space (no camera zoom).
+    const sw = scene.scale.width   // 960
+    const sh = scene.scale.height  // 1708
+
+    this.DEFAULT_X = sw - 220  // 2× original offset (110→220)
+    this.DEFAULT_Y = sh - 280  // 2× original offset (140→280)
 
     // ── Visuals ──────────────────────────────────────────────────────────────
     this.baseGfx = scene.add
       .circle(this.DEFAULT_X, this.DEFAULT_Y, this.radius, 0xffffff, 0.10)
-      .setStrokeStyle(2, 0xffffff, 0.25)
+      .setStrokeStyle(4, 0xffffff, 0.25)
       .setScrollFactor(0)
       .setDepth(1000)
 
     this.thumbGfx = scene.add
-      .circle(this.DEFAULT_X, this.DEFAULT_Y, 26, 0xffffff, 0.45)
-      .setStrokeStyle(2, 0xffffff, 0.6)
+      .circle(this.DEFAULT_X, this.DEFAULT_Y, 52, 0xffffff, 0.45)
+      .setStrokeStyle(4, 0xffffff, 0.6)
       .setScrollFactor(0)
       .setDepth(1001)
 
     // ── Touch zone — invisible rect covering right 40 % ───────────────────
     const zone = scene.add
-      .rectangle(width * 0.6, 0, width * 0.4, height, 0xffffff, 0)
+      .rectangle(sw * 0.6, 0, sw * 0.4, sh, 0xffffff, 0)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(999)

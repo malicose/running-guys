@@ -3,9 +3,10 @@ import { UPGRADES } from '../config/upgrades'
 import { EconomySystem } from '../systems/EconomySystem'
 import { EventBus } from '../systems/EventBus'
 
-const PANEL_W  = 240
-const ROW_H    = 28
-const PAD      = 12
+// All sizes are 2× the original 480×854 design (canvas is now 960×1708).
+const PANEL_W  = 480
+const ROW_H    = 56
+const PAD      = 24
 
 /**
  * InfoPanel — top-left overlay showing all purchased upgrades and worker count.
@@ -23,16 +24,16 @@ export class InfoPanel {
     this.scene = scene
 
     // ── Info button (top-left) ─────────────────────────────────────────────
-    this.btn = scene.add.container(8, 8).setDepth(10001)
+    this.btn = scene.add.container(16, 16).setDepth(10001)
 
     const btnBg = scene.add
-      .circle(16, 16, 16, 0x000000, 0.55)
-      .setStrokeStyle(1.5, 0xffd600, 0.5)
+      .circle(32, 32, 32, 0x000000, 0.55)
+      .setStrokeStyle(3, 0xffd600, 0.5)
     this.btn.add(btnBg)
 
     const btnLabel = scene.add
-      .text(16, 16, 'i', {
-        fontSize: '18px',
+      .text(32, 32, 'i', {
+        fontSize: '36px',
         fontStyle: 'bold',
         color: '#FFD600',
       } as Phaser.Types.GameObjects.Text.TextStyle)
@@ -52,21 +53,21 @@ export class InfoPanel {
     this.panel = scene.add.container(-PANEL_W, 0).setDepth(10000)
 
     this.bg = scene.add
-      .rectangle(0, 0, PANEL_W, 200 /* resized in _rebuild */, 0x1a1a1a, 0.92)
+      .rectangle(0, 0, PANEL_W, 400 /* resized in _rebuild */, 0x1a1a1a, 0.92)
       .setOrigin(0, 0)
-      .setStrokeStyle(2, 0xffd600, 0.4)
+      .setStrokeStyle(4, 0xffd600, 0.4)
     this.panel.add(this.bg)
 
     // Header
     const headerBg = scene.add
-      .rectangle(0, 0, PANEL_W, 40, 0x111111, 0.95)
+      .rectangle(0, 0, PANEL_W, 80, 0x111111, 0.95)
       .setOrigin(0, 0)
     this.panel.add(headerBg)
 
     this.panel.add(
       scene.add
-        .text(PANEL_W / 2, 20, 'STATS & UPGRADES', {
-          fontSize: '14px',
+        .text(PANEL_W / 2, 40, 'STATS & UPGRADES', {
+          fontSize: '28px',
           fontStyle: 'bold',
           color: '#ffd600',
         } as Phaser.Types.GameObjects.Text.TextStyle)
@@ -74,12 +75,12 @@ export class InfoPanel {
     )
 
     const rule = scene.add
-      .rectangle(PAD, 40, PANEL_W - PAD * 2, 1, 0xffd600, 0.3)
+      .rectangle(PAD, 80, PANEL_W - PAD * 2, 2, 0xffd600, 0.3)
       .setOrigin(0, 0)
     this.panel.add(rule)
 
     // Scrollable content container
-    this.content = scene.add.container(0, 48)
+    this.content = scene.add.container(0, 96)
     this.panel.add(this.content)
 
     // Close on click outside
@@ -89,9 +90,8 @@ export class InfoPanel {
       const py = ptr.y
       const panelX = this.panel.x
       const panelH = this.bg.height
-      // If click is outside the panel and outside the button, close
       const inPanel = px >= panelX && px <= panelX + PANEL_W && py >= 0 && py <= panelH
-      const inBtn   = px >= 8 && px <= 40 && py >= 8 && py <= 40
+      const inBtn   = px >= 16 && px <= 80 && py >= 16 && py <= 80
       if (!inPanel && !inBtn) this._close()
     })
 
@@ -149,11 +149,11 @@ export class InfoPanel {
       rows.push({ label: 'No upgrades yet', value: '', color: '#78909c' })
     } else {
       // Section divider label
-      const divY = rows.length * ROW_H + 4
+      const divY = rows.length * ROW_H + 8
       this.content.add(
         this.scene.add
           .text(PAD, divY, 'PURCHASED UPGRADES', {
-            fontSize: '10px',
+            fontSize: '20px',
             fontStyle: 'bold',
             color: '#ffd600',
           } as Phaser.Types.GameObjects.Text.TextStyle),
@@ -170,7 +170,7 @@ export class InfoPanel {
 
     // Render rows
     rows.forEach((row, i) => {
-      const y = i * ROW_H + (bought.length > 0 && i > 0 ? 18 : 0)
+      const y = i * ROW_H + (bought.length > 0 && i > 0 ? 36 : 0)
 
       // Alternating row bg
       if (i % 2 === 0) {
@@ -184,7 +184,7 @@ export class InfoPanel {
       this.content.add(
         this.scene.add
           .text(PAD, y + ROW_H / 2, row.label, {
-            fontSize: '12px',
+            fontSize: '24px',
             color: row.color,
           } as Phaser.Types.GameObjects.Text.TextStyle)
           .setOrigin(0, 0.5),
@@ -194,7 +194,7 @@ export class InfoPanel {
         this.content.add(
           this.scene.add
             .text(PANEL_W - PAD, y + ROW_H / 2, row.value, {
-              fontSize: '12px',
+              fontSize: '24px',
               fontStyle: 'bold',
               color: row.color,
             } as Phaser.Types.GameObjects.Text.TextStyle)
@@ -204,8 +204,8 @@ export class InfoPanel {
     })
 
     // Resize panel bg to fit content
-    const contentH = rows.length * ROW_H + (bought.length > 0 ? 18 : 0) + 16
-    this.bg.height = 48 + contentH
+    const contentH = rows.length * ROW_H + (bought.length > 0 ? 36 : 0) + 32
+    this.bg.height = 96 + contentH
   }
 
   private _formatLabel(u: (typeof UPGRADES)[0]): string {

@@ -153,6 +153,7 @@ export class Game extends Phaser.Scene {
     })
 
     this.cameras.main
+      .setZoom(2)            // canvas is 960×1708; zoom=2 → viewport 480×854 world units
       .setBounds(0, 0, W, H)
       .startFollow(this.player, true)
       .setLerp(0.1, 0.1)

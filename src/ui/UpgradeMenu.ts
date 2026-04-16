@@ -4,9 +4,10 @@ import { EconomySystem } from '../systems/EconomySystem'
 import { EventBus } from '../systems/EventBus'
 import type { UpgradeDef } from '../types'
 
-const PANEL_W  = 230
-const CARD_H   = 68
-const CARD_PAD = 10
+// All sizes are 2× the original 480×854 design (canvas is now 960×1708).
+const PANEL_W  = 460
+const CARD_H   = 136
+const CARD_PAD = 20
 
 /**
  * UpgradeMenu — UI-scene panel that slides in from the right when the player
@@ -28,7 +29,9 @@ export class UpgradeMenu {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
-    const { height, width } = scene.scale
+    // UI scene uses full canvas coordinate space (960×1708, no camera zoom).
+    const width  = scene.scale.width   // 960
+    const height = scene.scale.height  // 1708
 
     this.hiddenX = width
     this.shownX  = width - PANEL_W
@@ -40,24 +43,24 @@ export class UpgradeMenu {
     const bg = scene.add
       .rectangle(0, 0, PANEL_W, height, 0x1a1a1a, 0.88)
       .setOrigin(0, 0)
-      .setStrokeStyle(2, 0xffd54f, 0.5)
+      .setStrokeStyle(4, 0xffd54f, 0.5)
     this.root.add(bg)
 
     // Header
     const title = scene.add
-      .text(PANEL_W / 2, 22, 'UPGRADES', {
-        fontSize: '18px', fontStyle: 'bold', color: '#ffd54f',
+      .text(PANEL_W / 2, 44, 'UPGRADES', {
+        fontSize: '36px', fontStyle: 'bold', color: '#ffd54f',
       } as Phaser.Types.GameObjects.Text.TextStyle)
       .setOrigin(0.5)
     this.root.add(title)
 
     const rule = scene.add
-      .rectangle(CARD_PAD, 44, PANEL_W - CARD_PAD * 2, 1, 0xffd54f, 0.4)
+      .rectangle(CARD_PAD, 88, PANEL_W - CARD_PAD * 2, 2, 0xffd54f, 0.4)
       .setOrigin(0, 0)
     this.root.add(rule)
 
     // Cards root — rebuilt when state changes
-    this.cardsRoot = scene.add.container(0, 56)
+    this.cardsRoot = scene.add.container(0, 112)
     this.root.add(this.cardsRoot)
 
     this._rebuildCards()
@@ -77,7 +80,6 @@ export class UpgradeMenu {
       this.hiddenX = gameSize.width
       this.shownX  = gameSize.width - PANEL_W
       this.root.x  = this.visible ? this.shownX : this.hiddenX
-      // Resize backdrop height
       ;(bg as Phaser.GameObjects.Rectangle).height = gameSize.height
     })
   }
@@ -122,7 +124,7 @@ export class UpgradeMenu {
   }
 
   private _buildCard(u: UpgradeDef, index: number): Phaser.GameObjects.Container {
-    const y = index * (CARD_H + 8) + CARD_PAD
+    const y = index * (CARD_H + 16) + CARD_PAD
     const card = this.scene.add.container(CARD_PAD, y)
 
     const affordable = EconomySystem.canAfford(u.id)
@@ -132,52 +134,52 @@ export class UpgradeMenu {
     const bg = this.scene.add
       .rectangle(0, 0, PANEL_W - CARD_PAD * 2, CARD_H, bgColor, 0.9)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0xffd54f, 0.4)
+      .setStrokeStyle(2, 0xffd54f, 0.4)
     card.add(bg)
 
     // Title — stat: value
     const title = this._formatTitle(u)
     card.add(
       this.scene.add
-        .text(8, 6, title, {
-          fontSize: '13px', fontStyle: 'bold', color: '#ffffff',
+        .text(16, 12, title, {
+          fontSize: '26px', fontStyle: 'bold', color: '#ffffff',
         } as Phaser.Types.GameObjects.Text.TextStyle),
     )
 
     // Subtitle — id (small, for debug/flavor)
     card.add(
       this.scene.add
-        .text(8, 24, u.id, {
-          fontSize: '9px', color: '#b0bec5',
+        .text(16, 48, u.id, {
+          fontSize: '18px', color: '#b0bec5',
         } as Phaser.Types.GameObjects.Text.TextStyle),
     )
 
     // Cost
     card.add(
       this.scene.add
-        .text(8, 42, `$${u.cost}`, {
-          fontSize: '14px', fontStyle: 'bold',
+        .text(16, 84, `$${u.cost}`, {
+          fontSize: '28px', fontStyle: 'bold',
           color: affordable ? '#ffd54f' : '#ef9a9a',
         } as Phaser.Types.GameObjects.Text.TextStyle),
     )
 
     // BUY button
-    const btnW = 66
-    const btnH = 26
-    const btnX = PANEL_W - CARD_PAD * 2 - btnW - 8
+    const btnW = 132
+    const btnH = 52
+    const btnX = PANEL_W - CARD_PAD * 2 - btnW - 16
     const btnY = CARD_H / 2 - btnH / 2
 
     const btnColor = affordable ? 0xffd54f : 0x546e7a
     const btn = this.scene.add
       .rectangle(btnX, btnY, btnW, btnH, btnColor, 1)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x000000, 0.4)
+      .setStrokeStyle(2, 0x000000, 0.4)
     card.add(btn)
 
     card.add(
       this.scene.add
         .text(btnX + btnW / 2, btnY + btnH / 2, 'BUY', {
-          fontSize: '13px', fontStyle: 'bold',
+          fontSize: '26px', fontStyle: 'bold',
           color: affordable ? '#1b5e20' : '#90a4ae',
         } as Phaser.Types.GameObjects.Text.TextStyle)
         .setOrigin(0.5),

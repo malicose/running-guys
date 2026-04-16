@@ -26,17 +26,22 @@ export class UI extends Phaser.Scene {
   }
 
   create(): void {
-    const { width } = this.scale
+    // UI camera uses the full canvas coordinate space (960×1708).
+    // No zoom — elements are positioned in 0–960 × 0–1708 scene space.
+    const width  = this.scale.width    // 960
+    const height = this.scale.height   // 1708
+    void height   // used by future layout code
 
     // ── Money display ────────────────────────────────────────────────────────
+    // All sizes are 2× the original 480×854 design (canvas is now 960×1708).
     this.add
-      .rectangle(width - 8, 8, 128, 36, 0x000000, 0.45)
+      .rectangle(width - 16, 16, 256, 72, 0x000000, 0.45)
       .setOrigin(1, 0)
-      .setStrokeStyle(1, 0xffd600, 0.3)
+      .setStrokeStyle(2, 0xffd600, 0.3)
 
     this.moneyText = this.add
-      .text(width - 18, 26, '$0', {
-        fontSize: '20px',
+      .text(width - 36, 52, '$0', {
+        fontSize: '40px',
         fontStyle: 'bold',
         color: '#FFD600',
       } as Phaser.Types.GameObjects.Text.TextStyle)
